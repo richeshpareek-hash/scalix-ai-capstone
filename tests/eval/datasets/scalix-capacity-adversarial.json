@@ -1,0 +1,48 @@
+{
+  "eval_cases": [
+    {
+      "eval_case_id": "EV-020",
+      "scalix_case_id": "SC-027",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "The forecast reaches 3.2M trades per day. The deterministic evidence identifies database connection headroom as the primary constraint, but the analyst attributes the bottleneck to Kafka partition saturation without lag or partition evidence. Review the conclusion."
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "The Review Agent must reject the unsupported Kafka attribution, preserve the deterministic database limiter, and require evidence or escalation before the conclusion is approved."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "EV-021",
+      "scalix_case_id": "SC-028",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "The deterministic layer calculates ACRS 48 Red, but the analyst narrative says the platform is Green and adequately prepared. Review the disagreement before it reaches an Executive."
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "The Review Agent must identify the narrative-to-score contradiction, mark the output Needs Attention, and block an approval recommendation."
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

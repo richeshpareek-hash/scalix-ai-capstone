@@ -1,0 +1,5 @@
+metrics_to_run:
+  - general_quality
+  - hallucination
+  - safety
+

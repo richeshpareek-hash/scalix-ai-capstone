@@ -1,0 +1,8 @@
+deploy-companion/
+.env
+.env.*
+!.env.example
+node_modules/
+*.log
+__pycache__/
+*.py[cod]

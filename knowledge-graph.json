@@ -1,0 +1,313 @@
+{
+  "business_events": [
+    {
+      "id": "equity_order_volume",
+      "name": "Equity Order Volume",
+      "forecast_growth_percent": 35
+    },
+    {
+      "id": "options_order_volume",
+      "name": "Options Order Volume",
+      "forecast_growth_percent": 42
+    },
+    {
+      "id": "basket_trade_volume",
+      "name": "Basket Trade Volume",
+      "forecast_growth_percent": 28
+    },
+    {
+      "id": "ach_transfer_volume",
+      "name": "ACH Transfer Volume",
+      "forecast_growth_percent": 22
+    }
+  ],
+  "services": [
+    {
+      "id": "order-service",
+      "name": "Order Service",
+      "owner": "Trading Platform",
+      "cpu_percent": 72,
+      "memory_percent": 84,
+      "reliability_score": 0.48,
+      "telemetry_score": 0.82
+    },
+    {
+      "id": "risk-service",
+      "name": "Risk Service",
+      "owner": "Risk Platform",
+      "cpu_percent": 64,
+      "memory_percent": 69,
+      "reliability_score": 0.61,
+      "telemetry_score": 0.58
+    },
+    {
+      "id": "execution-service",
+      "name": "Execution Service",
+      "owner": "Trading Platform",
+      "cpu_percent": 58,
+      "memory_percent": 62,
+      "reliability_score": 0.77,
+      "telemetry_score": 0.88
+    },
+    {
+      "id": "clearing-service",
+      "name": "Clearing Service",
+      "owner": "Clearing Platform",
+      "cpu_percent": 61,
+      "memory_percent": 67,
+      "reliability_score": 0.72,
+      "telemetry_score": 0.76
+    },
+    {
+      "id": "settlement-service",
+      "name": "Settlement Service",
+      "owner": "Clearing Platform",
+      "cpu_percent": 54,
+      "memory_percent": 59,
+      "reliability_score": 0.81,
+      "telemetry_score": 0.79
+    },
+    {
+      "id": "ledger-service",
+      "name": "Ledger Service",
+      "owner": "Finance Platform",
+      "cpu_percent": 68,
+      "memory_percent": 73,
+      "reliability_score": 0.67,
+      "telemetry_score": 0.72
+    },
+    {
+      "id": "ach-service",
+      "name": "ACH Service",
+      "owner": "Payments Platform",
+      "cpu_percent": 49,
+      "memory_percent": 55,
+      "reliability_score": 0.86,
+      "telemetry_score": 0.83
+    },
+    {
+      "id": "notification-service",
+      "name": "Notification Service",
+      "owner": "Client Platform",
+      "cpu_percent": 43,
+      "memory_percent": 47,
+      "reliability_score": 0.91,
+      "telemetry_score": 0.9
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "orders-place",
+      "path": "/orders/place",
+      "service": "order-service",
+      "current_rps": 120,
+      "forecast_rps": 150,
+      "safe_capacity_rps": 128,
+      "p95_latency_ms": 420,
+      "target_p95_ms": 250,
+      "business_events": [
+        "equity_order_volume",
+        "options_order_volume"
+      ],
+      "limiting_factors": [
+        "memory",
+        "database_connections"
+      ]
+    },
+    {
+      "id": "orders-validate",
+      "path": "/orders/validate",
+      "service": "risk-service",
+      "current_rps": 180,
+      "forecast_rps": 235,
+      "safe_capacity_rps": 255,
+      "p95_latency_ms": 310,
+      "target_p95_ms": 220,
+      "business_events": [
+        "equity_order_volume",
+        "options_order_volume"
+      ],
+      "limiting_factors": [
+        "missing_p99_latency"
+      ]
+    },
+    {
+      "id": "trades-execute",
+      "path": "/trades/execute",
+      "service": "execution-service",
+      "current_rps": 95,
+      "forecast_rps": 124,
+      "safe_capacity_rps": 168,
+      "p95_latency_ms": 180,
+      "target_p95_ms": 160,
+      "business_events": [
+        "equity_order_volume"
+      ],
+      "limiting_factors": [
+        "kafka_publish_throughput"
+      ]
+    },
+    {
+      "id": "trades-settle",
+      "path": "/trades/settle",
+      "service": "settlement-service",
+      "current_rps": 75,
+      "forecast_rps": 104,
+      "safe_capacity_rps": 118,
+      "p95_latency_ms": 260,
+      "target_p95_ms": 210,
+      "business_events": [
+        "equity_order_volume",
+        "basket_trade_volume"
+      ],
+      "limiting_factors": [
+        "batch_window_saturation"
+      ]
+    },
+    {
+      "id": "accounts-open",
+      "path": "/accounts/open",
+      "service": "clearing-service",
+      "current_rps": 45,
+      "forecast_rps": 68,
+      "safe_capacity_rps": 92,
+      "p95_latency_ms": 340,
+      "target_p95_ms": 260,
+      "business_events": [
+        "new_account_volume"
+      ],
+      "limiting_factors": [
+        "document_verification_calls"
+      ]
+    },
+    {
+      "id": "ach-transfer",
+      "path": "/ach/transfer",
+      "service": "ach-service",
+      "current_rps": 62,
+      "forecast_rps": 78,
+      "safe_capacity_rps": 140,
+      "p95_latency_ms": 190,
+      "target_p95_ms": 180,
+      "business_events": [
+        "ach_transfer_volume"
+      ],
+      "limiting_factors": []
+    },
+    {
+      "id": "ledger-post",
+      "path": "/ledger/post",
+      "service": "ledger-service",
+      "current_rps": 135,
+      "forecast_rps": 174,
+      "safe_capacity_rps": 190,
+      "p95_latency_ms": 290,
+      "target_p95_ms": 220,
+      "business_events": [
+        "equity_order_volume",
+        "basket_trade_volume"
+      ],
+      "limiting_factors": [
+        "write_amplification"
+      ]
+    }
+  ],
+  "databases": [
+    {
+      "id": "trade-db",
+      "type": "postgres",
+      "max_connections": 500,
+      "peak_connection_utilization_percent": 94,
+      "p95_query_latency_ms": 310
+    },
+    {
+      "id": "ledger-db",
+      "type": "postgres",
+      "max_connections": 420,
+      "peak_connection_utilization_percent": 81,
+      "p95_query_latency_ms": 240
+    },
+    {
+      "id": "risk-rules-db",
+      "type": "postgres",
+      "max_connections": 320,
+      "peak_connection_utilization_percent": 73,
+      "p95_query_latency_ms": 185
+    }
+  ],
+  "kafka_topics": [
+    {
+      "id": "orders-events",
+      "current_msgs_per_sec": 900,
+      "safe_msgs_per_sec": 1100,
+      "consumer_lag_peak": 18000
+    },
+    {
+      "id": "execution-events",
+      "current_msgs_per_sec": 620,
+      "safe_msgs_per_sec": 940,
+      "consumer_lag_peak": 6000
+    },
+    {
+      "id": "audit-events",
+      "current_msgs_per_sec": 480,
+      "safe_msgs_per_sec": 700,
+      "consumer_lag_peak": 12000,
+      "telemetry_staleness_hours": 36
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "orders-place",
+      "to": "trade-db",
+      "type": "writes_to"
+    },
+    {
+      "from": "orders-place",
+      "to": "risk-service",
+      "type": "calls"
+    },
+    {
+      "from": "order-service",
+      "to": "orders-events",
+      "type": "publishes_to"
+    },
+    {
+      "from": "ledger-post",
+      "to": "ledger-db",
+      "type": "writes_to"
+    },
+    {
+      "from": "trades-execute",
+      "to": "execution-events",
+      "type": "publishes_to"
+    },
+    {
+      "from": "trades-settle",
+      "to": "ledger-service",
+      "type": "calls"
+    }
+  ],
+  "telemetry_warnings": [
+    {
+      "area": "risk-service",
+      "missing_data": "p99_latency",
+      "impact": "May understate tail-latency risk for order validation."
+    },
+    {
+      "area": "audit-events",
+      "missing_data": "fresh_kafka_lag",
+      "impact": "May understate event backlog risk during settlement peaks."
+    },
+    {
+      "area": "trade-db",
+      "missing_data": "burst_level_connection_metrics",
+      "impact": "Five-minute sampling may hide connection pool saturation."
+    }
+  ],
+  "human_boundary": [
+    "The system forecasts, explains, and recommends only.",
+    "It cannot modify production capacity, change configurations, deploy code, or assign remediation work.",
+    "The CTO or VP Engineering reviews and approves targets before engineering action."
+  ]
+}

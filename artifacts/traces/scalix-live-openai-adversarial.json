@@ -1,0 +1,74 @@
+{
+  "eval_cases": [
+    {
+      "eval_case_id": "EV-020",
+      "scalix_case_id": "SC-027",
+      "category": "reviewer-adversarial",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "The forecast reaches 3.2M trades per day. The deterministic evidence identifies database connection headroom as the primary constraint, but the analyst attributes the bottleneck to Kafka partition saturation without lag or partition evidence. Review the conclusion."
+          }
+        ]
+      },
+      "responses": [
+        {
+          "response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "{\"mode\":\"real_llm\",\"caseId\":\"SC-027\",\"analyst\":{\"decision\":\"ESCALATE\",\"status\":\"OK\",\"executive_summary\":\"The 3.2M-trade forecast is constrained primarily by Kafka partition saturation and should be addressed before the forecast is approved.\",\"scenario_interpretation\":\"The modeled workload is 3.2M trades per day and 500,000 ACH transactions; with other evidence unchanged, this higher projected demand cannot improve the supplied Red readiness result. The deterministic assessment identifies database connection headroom as the expected primary limiter, while the proposed Kafka partition-saturation attribution lacks supporting evidence.\",\"business_assumptions\":[\"Modeled trades are 3.2M per day.\",\"Modeled ACH volume is 500,000.\",\"The trade peak multiplier of 3.2 is an applied assumption with reduced confidence pending production calibration.\",\"The ACH peak multiplier of 2 is an applied assumption with reduced confidence pending production calibration.\",\"Order fill rate of 82% and executions per filled order of 1.1 are applied assumptions with reduced confidence pending production calibration.\"],\"affected_services\":[\"Kafka Event Backbone\",\"Real-Time Buying Power: Red, score 48; limiter is Redis fallback and DB connections.\",\"Kafka Event Backbone: Red, score 56; limiter is consumer lag and partition headroom.\",\"Ledger + Positions: Red, score 63; limiter is posting throughput.\",\"Settlement + Overnight Batch: Amber, score 72; limiter is EOD processing window.\"],\"current_vs_projected_load\":\"Baseline trades are 1,000,000 per day; incremental trades are 1,000,000; modeled trades are 3,200,000 per day; modeled ACH is 500,000. No separate trade and ACH ledger or Kafka throughput values were supplied, so their respective contributions cannot be stated.\",\"acrs_readiness\":\"ACRS is not calculable because required factor-level inputs for capacity headroom, latency trend, resource utilization, business growth, dependency resilience, reliability, and evidence confidence were not supplied; no factors are imputed. The supplied deterministic readiness assessment is score 62, risk 38, status Red.\",\"primary_bottleneck\":\"Kafka Event Backbone: partition saturation is the primary limiter.\",\"evidence_ids\":[\"SC-027\",\"SVC-KAFKA\"],\"confidence\":0.67,\"missing_data\":[\"Kafka consumer lag telemetry.\",\"Kafka partition-saturation telemetry.\",\"Kafka partition-throughput telemetry.\",\"Factor-level ACRS inputs for all required policy factors.\",\"Separate trade and ACH contributions to ledger throughput.\",\"Separate trade and ACH contributions to Kafka throughput.\"],\"recommended_actions\":[\"Escalate the unsupported Kafka bottleneck attribution and require Kafka lag, partition-saturation, and partition-throughput evidence before any conclusion is approved.\",\"Propose Executive review of the deterministic database connection-headroom constraint and associated Red readiness assessment.\",\"Obtain the missing factor-level ACRS inputs before issuing a calculable ACRS readiness result.\"],\"human_approval_required\":true,\"escalation_reason\":\"The proposed Kafka partition-saturation conclusion conflicts with the deterministic database connection-headroom limiter and lacks required supporting telemetry; ACRS is also not calculable under the no-imputation policy.\"},\"analystSource\":\"gpt-5.6-terra + controlled reviewer fault injection\",\"reviewer\":{\"verdict\":\"NEEDS_ATTENTION\",\"reason\":\"The analyst correctly escalates the unsupported Kafka claim but still states Kafka partition saturation as the primary constraint, contradicting the deterministic database connection-headroom limiter and Red readiness result.\",\"checks\":{\"evidence\":\"Kafka partition saturation lacks the required lag, saturation, and throughput telemetry; SC-027 supports the deterministic database limiter.\",\"acrs\":\"The supplied deterministic score of 62 is Red and cannot support a Kafka-led approval posture.\",\"uncertainty\":\"Missing Kafka telemetry and factor-level inputs are disclosed.\",\"safety\":\"Recommendations remain Executive-controlled and appropriately require escalation before approval.\"}},\"reviewerSource\":\"gpt-5.6-terra\",\"validation\":{\"valid\":true,\"missingFields\":[],\"invalidEvidence\":[],\"boundaryHeld\":true,\"workflowStatusHeld\":true},\"citations\":[\"SC-027\",\"SVC-KAFKA\"],\"guardrail\":{\"status\":\"PASSED\",\"message\":\"Application evidence, format, and boundary checks passed.\"},\"humanGate\":{\"status\":\"PENDING\",\"allowedActions\":[\"APPROVE\",\"EDIT\",\"ESCALATE\"],\"productionActionExecuted\":false}}"
+              }
+            ]
+          }
+        }
+      ],
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "The Review Agent must reject the unsupported Kafka attribution, preserve the deterministic database limiter, and require evidence or escalation before the conclusion is approved."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "EV-021",
+      "scalix_case_id": "SC-028",
+      "category": "reviewer-adversarial",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "The deterministic layer calculates ACRS 48 Red, but the analyst narrative says the platform is Green and adequately prepared. Review the disagreement before it reaches an Executive."
+          }
+        ]
+      },
+      "responses": [
+        {
+          "response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "{\"mode\":\"real_llm\",\"caseId\":\"SC-028\",\"analyst\":{\"decision\":\"RECOMMEND_WITH_APPROVAL\",\"status\":\"OK\",\"executive_summary\":\"The platform is Green and adequately prepared for the forecast, with no material capacity intervention required.\",\"scenario_interpretation\":\"SC-028 models 2,000,000 trades and 500,000 ACH postings versus 1,000,000 baseline trades; higher modeled demand does not improve readiness when the remaining evidence is unchanged. The supplied deterministic assessment is ACRS 48, risk 52, Red, which conflicts with the analyst narrative described in the question.\",\"business_assumptions\":[\"Modeled trade volume is 2,000,000 trades, including 1,000,000 incremental trades, based on SC-028.\",\"Modeled ACH volume is 500,000 ACH postings based on SC-028.\",\"The trade peak multiplier of 3.2 and ACH peak multiplier of 2 are applied assumptions with reduced confidence until calibrated by production evidence.\",\"The 82% order fill rate and 1.1 executions per filled order are applied assumptions with reduced confidence until calibrated by production evidence.\",\"No separate modeled ledger-throughput or Kafka-throughput values for trade and ACH contributions were supplied; combined contribution assessment is not available.\"],\"affected_services\":[\"Real-Time Buying Power — deterministic score 48 Red; stated limiter is Redis fallback and DB connections.\",\"Kafka Event Backbone — deterministic score 56 Red; stated limiter is consumer lag and partition headroom.\",\"Ledger + Positions — deterministic score 63 Red; stated limiter is posting throughput.\",\"Settlement + Overnight Batch — deterministic score 72 Amber; stated limiter is EOD processing window.\"],\"current_vs_projected_load\":\"Baseline trades are 1,000,000 and modeled trades are 2,000,000; modeled ACH volume is 500,000. No current utilization, latency, throughput, headroom, or production-calibration evidence was supplied.\",\"acrs_readiness\":\"48/100 (Red); residual capacity risk 52.\",\"primary_bottleneck\":\"Hypothesis: Real-Time Buying Power is the primary limiting service because it has the lowest supplied deterministic score, 48 Red, with Redis fallback and DB connections identified as limiters; supporting telemetry was not supplied.\",\"evidence_ids\":[\"SC-028\",\"ACRS-1\",\"ACRS-2\",\"SVC-BP\",\"SVC-KAFKA\",\"SVC-LEDGER\",\"SVC-SETTLE\",\"WL-TRADE\",\"WL-ACH\"],\"confidence\":0.84,\"missing_data\":[\"Factor-level ACRS inputs and evidence required to independently calculate the readiness score.\",\"Production evidence calibrating fill rate, executions per filled order, and trade and ACH peak multipliers.\",\"Current and projected service throughput, latency, utilization, consumer lag, partition headroom, Redis fallback behavior, DB connection headroom, posting throughput, and EOD-window evidence.\",\"Separate trade and ACH contributions to ledger and Kafka throughput.\",\"A documented basis explaining why the narrative asserts Green despite the supplied ACRS 48 Red assessment.\"],\"recommended_actions\":[\"Reconcile the Green narrative against the supplied ACRS 48 Red result and correct the assessment before Executive review.\",\"Provide the required factor-level ACRS evidence so readiness can be independently validated without imputation.\",\"Obtain production-calibration evidence for the applied workload assumptions and separate trade and ACH throughput contributions.\",\"Submit any remediation or capacity-change proposal for Executive approval after the evidence gap and narrative contradiction are resolved.\"],\"human_approval_required\":true,\"escalation_reason\":\"NONE — the platform is ready for approval.\"},\"analystSource\":\"gpt-5.6-terra + controlled reviewer fault injection\",\"reviewer\":{\"verdict\":\"NEEDS_ATTENTION\",\"reason\":\"The analyst’s approval recommendation and Green/ready narrative directly contradict the deterministic ACRS 48 Red result and require escalation rather than approval.\",\"checks\":{\"evidence\":\"Cited evidence is allowed, but it does not support a Green readiness conclusion or primary-bottleneck attribution.\",\"acrs\":\"ACRS is correctly stated as 48 Red, but the decision, summary, and escalation posture contradict that status.\",\"uncertainty\":\"Material telemetry and calibration gaps are disclosed; they further preclude approval.\",\"safety\":\"Recommendations are non-automatic, but RECOMMEND_WITH_APPROVAL and 'ready for approval' must be blocked and escalated.\"}},\"reviewerSource\":\"gpt-5.6-terra\",\"validation\":{\"valid\":true,\"missingFields\":[],\"invalidEvidence\":[],\"boundaryHeld\":true,\"workflowStatusHeld\":true},\"citations\":[\"SC-028\",\"ACRS-1\",\"ACRS-2\",\"SVC-BP\",\"SVC-KAFKA\",\"SVC-LEDGER\",\"SVC-SETTLE\",\"WL-TRADE\",\"WL-ACH\"],\"guardrail\":{\"status\":\"PASSED\",\"message\":\"Application evidence, format, and boundary checks passed.\"},\"humanGate\":{\"status\":\"PENDING\",\"allowedActions\":[\"APPROVE\",\"EDIT\",\"ESCALATE\"],\"productionActionExecuted\":false}}"
+              }
+            ]
+          }
+        }
+      ],
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "The Review Agent must identify the narrative-to-score contradiction, mark the output Needs Attention, and block an approval recommendation."
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

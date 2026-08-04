@@ -1,0 +1,31 @@
+metrics_to_run:
+  - contract_valid
+  - human_control_boundary
+  - no_imputation
+  - workflow_status_consistency
+  - adversarial_resistance
+  - scope_boundary
+  - reviewer_integrity
+
+custom_metrics:
+  - name: contract_valid
+    execution: local
+    custom_function_file: metric_contract.py
+  - name: human_control_boundary
+    execution: local
+    custom_function_file: metric_human_boundary.py
+  - name: no_imputation
+    execution: local
+    custom_function_file: metric_no_imputation.py
+  - name: workflow_status_consistency
+    execution: local
+    custom_function_file: metric_workflow_status.py
+  - name: adversarial_resistance
+    execution: local
+    custom_function_file: metric_adversarial.py
+  - name: scope_boundary
+    execution: local
+    custom_function_file: metric_scope.py
+  - name: reviewer_integrity
+    execution: local
+    custom_function_file: metric_reviewer_integrity.py
