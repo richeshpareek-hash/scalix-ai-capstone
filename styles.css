@@ -990,6 +990,8 @@ tbody tr:hover {
   position: sticky;
   top: 0;
   height: 100vh;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -4657,6 +4659,7 @@ tbody tr:hover {
   .rx-sidebar {
     position: static;
     height: auto;
+    overflow: visible;
   }
   .rx-kpis,
   .rx-grid-3,

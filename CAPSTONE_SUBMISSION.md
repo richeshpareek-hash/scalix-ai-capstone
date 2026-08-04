@@ -29,7 +29,7 @@ Logins:
 
 ## Recommended demonstration
 
-1. Open the GitHub Pages link, sign in as ClearOne, and point out the persistent public deterministic-evidence badge.
+1. Open the GitHub Pages link, sign in as ClearOne, and show that Deterministic mode works without a key while optional Analysis mode requires the visitor's session-only BYOK connection.
 2. Review overall ACRS, risk summary, and six-month service status.
 3. Run the 4M market-open surge scenario.
 4. Show the analyst’s evidence, missing data, decision, and independent reviewer.
@@ -57,7 +57,8 @@ Logins:
 - Evidence IDs are validated and missing telemetry is disclosed.
 - ACRS is deterministic and continuous; the language model does not invent the score.
 - Synthetic data and modeled assumptions are visibly labeled.
-- A live OpenAI run requires a server-side API key and available API credit. The demo remains functional in deterministic synthetic mode without a key.
+- A local live OpenAI run through `server.js` requires a server-side API key and available API credit. The demo remains functional in deterministic synthetic mode without a key.
+- On GitHub Pages, a visitor may optionally use a session-only BYOK key that goes directly to OpenAI. This is a capstone convenience; production must use an authenticated backend and secret manager.
 
 ## Known limitations to reevaluate after integration
 

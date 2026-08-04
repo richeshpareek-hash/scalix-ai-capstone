@@ -6,14 +6,16 @@ The capstone demo uses a fictional clearing-house tenant, ClearOne Clearing, wit
 
 ## Public capstone deployment
 
-The GitHub Pages build runs in deterministic evidence mode using only the synthetic ClearOne dataset. It requires no API key, makes no external model calls, and cannot execute production actions. This keeps the public demo safe, repeatable, and reviewable while preserving the complete scenario-to-decision workflow.
+The GitHub Pages build starts in deterministic evidence mode using only the synthetic ClearOne dataset. Without a key it makes no external model calls and still exposes the complete dashboard, console, scenario loop, approval workflow, and eval evidence.
 
-The optional OpenAI analyst-and-reviewer path remains available only when the project is run through `server.js` with a server-side `OPENAI_API_KEY`; no key is shipped to GitHub or stored in browser code.
+Visitors may optionally connect their own OpenAI project key in Settings to run the `gpt-5.6-terra` analyst and reviewer. The key is never shipped in the files or sent to Scalix; it is held only in that browser tab and sent directly to the OpenAI Responses API. Disconnecting or closing the tab clears it. Production actions remain disabled in both modes.
+
+This browser BYOK path is a capstone convenience, not the recommended production security architecture. OpenAI recommends routing API requests through a backend instead of exposing keys to client-side browser code. See `SECURITY.md` for the public-demo controls and production design.
 
 This prototype has two modes:
 
 1. Deterministic scoring mode for trusted ACRS calculations.
-2. Optional OpenAI analyst-and-reviewer mode for evidence-grounded findings and independent quality review.
+2. Optional OpenAI analyst-and-reviewer mode for evidence-grounded findings and independent quality review, using browser-session BYOK on GitHub Pages or a server-side key when run locally.
 
 The integrated decision loop is:
 
@@ -25,7 +27,7 @@ The integrated decision loop is:
 6. Run an independent Review Agent.
 7. Present the result for Executive Approve, Edit, or Escalate.
 
-The OpenAI API key is read only by the local Node server and is never stored in the browser. Without a key, the same governed workflow uses deterministic synthetic analyst and reviewer outputs.
+When run locally through `server.js`, the OpenAI API key remains in server memory or the `OPENAI_API_KEY` environment variable. On GitHub Pages, optional BYOK is held only in the visitor's tab session. Without a key, the same governed workflow uses deterministic synthetic analyst and reviewer outputs.
 
 New SaaS-focused screens:
 

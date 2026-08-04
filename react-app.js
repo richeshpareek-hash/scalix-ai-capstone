@@ -1,10 +1,13 @@
-import React, { useEffect, useMemo, useState } from "https://esm.sh/react@18.2.0";
-import { createRoot } from "https://esm.sh/react-dom@18.2.0/client";
+const React = window.React;
+const { useEffect, useMemo, useState } = React;
+const { createRoot } = window.ReactDOM;
 
 const h = React.createElement;
 const money = new Intl.NumberFormat("en-US");
-const publicDeterministicDemo = window.location.hostname.endsWith(".github.io")
+const publicHostedDemo = window.location.hostname.endsWith(".github.io")
   || new URLSearchParams(window.location.search).get("mode") === "deterministic";
+const browserApiKeyStorageKey = "scalix_openai_api_key_session_v1";
+const publicOpenAIModel = "gpt-5.6-terra";
 const baselineForecast = {
   accounts: 500_000,
   equityTrades: 1_000_000,
@@ -871,9 +874,10 @@ function buildBrowserDeterministicAnalysis(payload) {
 }
 
 async function requestScenarioAnalysis(payload) {
-  if (publicDeterministicDemo || payload.executionMode !== "live_openai") {
+  if (payload.executionMode !== "live_openai") {
     return buildBrowserDeterministicAnalysis({ ...payload, executionMode: "synthetic_demo" });
   }
+  if (publicHostedDemo) return runBrowserLiveScenario(payload);
   const response = await fetch("/api/scenario-analysis", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -881,6 +885,146 @@ async function requestScenarioAnalysis(payload) {
   });
   if (!response.ok) throw new Error("The analysis service did not return a valid result.");
   return response.json();
+}
+
+function extractOpenAIResponseText(data) {
+  if (data?.output_text) return data.output_text;
+  return (data?.output || [])
+    .flatMap((item) => item.content || [])
+    .map((part) => part.text || "")
+    .join("\n");
+}
+
+function parseOpenAIJson(text) {
+  const normalized = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  return JSON.parse(normalized);
+}
+
+function readableBrowserOpenAIError(status, data, error) {
+  const message = String(data?.error?.message || error?.message || "");
+  if (status === 401 || /invalid_api_key|incorrect api key/i.test(message)) return "The OpenAI API key was rejected. Clear it and connect a valid project key.";
+  if (/insufficient_quota|exceeded your current quota|billing/i.test(message)) return "The OpenAI project has no available credit or has exceeded its quota.";
+  if (status === 429 || /rate limit/i.test(message)) return "The OpenAI project is currently rate limited.";
+  if (status === 403 || /permission|not authorized/i.test(message)) return "The API project does not have permission to use the configured model.";
+  if (status === 404 || /model_not_found|does not exist/i.test(message)) return `The configured model (${publicOpenAIModel}) is not available to this API project.`;
+  if (/fetch|network|failed/i.test(message)) return "The browser could not reach the OpenAI API. Check network or browser policy and retry.";
+  return "The OpenAI request failed before a valid response was returned.";
+}
+
+async function callBrowserOpenAI(prompt, userPayload, { verbosity = "medium", maxOutputTokens = 2500 } = {}) {
+  const apiKey = sessionStorage.getItem(browserApiKeyStorageKey);
+  if (!apiKey) throw new Error("No browser-session OpenAI API key is connected.");
+  let response;
+  try {
+    response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: publicOpenAIModel,
+        reasoning: { effort: "medium" },
+        instructions: prompt,
+        input: JSON.stringify(userPayload),
+        text: { verbosity },
+        max_output_tokens: maxOutputTokens,
+        store: false,
+      }),
+    });
+  } catch (error) {
+    throw new Error(readableBrowserOpenAIError(0, null, error));
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(readableBrowserOpenAIError(response.status, data));
+  return parseOpenAIJson(extractOpenAIResponseText(data));
+}
+
+async function runBrowserLiveScenario(payload) {
+  const core = window.SCALIX_AGENT_CORE;
+  if (!core) throw new Error("The Scalix evidence policy could not be loaded.");
+  const analysisPayload = core.buildAnalysisPayload(payload);
+  const { context } = analysisPayload;
+  let analyst = core.fallbackWorker(context);
+  let analystSource = "Deterministic synthetic model";
+  let mode = "synthetic_fallback";
+  let modelIssue = "";
+
+  try {
+    const candidate = await callBrowserOpenAI(core.ANALYST_PROMPT, analysisPayload, { maxOutputTokens: 3200 });
+    const candidateValidation = core.validateWorker(candidate, context.caseId);
+    if (candidateValidation.valid) {
+      analyst = candidate;
+      analystSource = publicOpenAIModel;
+      mode = "real_llm";
+    } else {
+      modelIssue = "The live analyst response failed application validation; the safe deterministic result is shown.";
+    }
+  } catch (error) {
+    modelIssue = `${error.message} The safe deterministic result is shown.`;
+  }
+
+  if (payload.evaluationFaultInjection) {
+    analyst = core.applyEvaluationFault(analyst, context, payload.evaluationFaultInjection);
+    analystSource = `${analystSource} + controlled reviewer fault injection`;
+  }
+
+  const validation = core.validateWorker(analyst, context.caseId);
+  const policyReviewer = core.fallbackReviewer(analyst, context, validation);
+  let reviewer = policyReviewer;
+  let reviewerSource = "Deterministic policy reviewer";
+
+  if (mode === "real_llm") {
+    try {
+      const candidateReviewer = await callBrowserOpenAI(core.REVIEWER_PROMPT, {
+        ...analysisPayload,
+        analyst_output: analyst,
+        application_validation: validation,
+      }, { verbosity: "low", maxOutputTokens: 1000 });
+      if (
+        ["LOOKS_RIGHT", "NEEDS_ATTENTION"].includes(candidateReviewer?.verdict) &&
+        candidateReviewer?.reason && candidateReviewer?.checks
+      ) {
+        const misreadWorkflowStatus = analyst.status === "OK" &&
+          /status.{0,40}OK.{0,120}(conflict|inconsistent)|OK.{0,120}(Red|ESCALATE)/i.test(candidateReviewer.reason);
+        if (policyReviewer.verdict === "NEEDS_ATTENTION" && candidateReviewer.verdict !== "NEEDS_ATTENTION") {
+          reviewer = policyReviewer;
+          reviewerSource = "Deterministic policy reviewer — material contradiction safeguard";
+        } else if (misreadWorkflowStatus) {
+          reviewer = policyReviewer;
+          reviewerSource = "Deterministic policy reviewer — workflow-status correction";
+        } else {
+          reviewer = candidateReviewer;
+          reviewerSource = publicOpenAIModel;
+        }
+      } else {
+        modelIssue = [modelIssue, "The live reviewer format was invalid; deterministic policy review was applied."].filter(Boolean).join(" ");
+      }
+    } catch (error) {
+      modelIssue = [modelIssue, `${error.message} Deterministic policy review was applied.`].filter(Boolean).join(" ");
+    }
+  }
+
+  return {
+    mode,
+    caseId: context.caseId,
+    analyst,
+    analystSource,
+    reviewer,
+    reviewerSource,
+    validation,
+    citations: analyst.evidence_ids || [],
+    guardrail: {
+      status: validation.valid ? "PASSED" : "ATTENTION",
+      message: modelIssue || "Application evidence, format, and boundary checks passed.",
+    },
+    humanGate: {
+      status: "PENDING",
+      allowedActions: ["APPROVE", "EDIT", "ESCALATE"],
+      productionActionExecuted: false,
+    },
+    completedAt: new Date().toISOString(),
+  };
 }
 
 function interpretScenario(question, target) {
@@ -997,11 +1141,11 @@ function targetForQuestion(target, question, caseId, assumptions = defaultModelA
 function App() {
   const [session, setSession] = useState(null);
   const [view, setView] = useState("client-dashboard");
-  const [executionMode, setExecutionMode] = useState(() =>
-    !publicDeterministicDemo && localStorage.getItem("scalix_execution_mode_v1") === "live_openai"
-      ? "live_openai"
-      : "synthetic_demo"
-  );
+  const [executionMode, setExecutionMode] = useState(() => {
+    const requestedLive = localStorage.getItem("scalix_execution_mode_v1") === "live_openai";
+    const liveAvailable = !publicHostedDemo || Boolean(sessionStorage.getItem(browserApiKeyStorageKey));
+    return requestedLive && liveAvailable ? "live_openai" : "synthetic_demo";
+  });
   const [modelAssumptions, setModelAssumptions] = useState(() => {
     try {
       return normalizeModelAssumptions(JSON.parse(localStorage.getItem("scalix_model_assumptions_v1") || "{}"));
@@ -1065,8 +1209,8 @@ function Login({ onLogin }) {
       h("label", null, "Password", h("input", { type: "password", value: password, onChange: (e) => setPassword(e.target.value), placeholder: "admin or clear" })),
       h("button", { className: "rx-primary" }, "Log in"),
       error && h("p", { className: "rx-error" }, error),
-      publicDeterministicDemo && h("p", { className: "rx-public-demo-note" },
-        "Public capstone prototype · synthetic ClearOne data · deterministic analysis only · no production actions"
+      publicHostedDemo && h("p", { className: "rx-public-demo-note" },
+        "Public capstone prototype · deterministic without a key · optional live BYOK analysis · no production actions"
       ),
       h("div", { className: "rx-login-shortcuts" },
         h("button", { type: "button", onClick: () => { setId("admin"); setPassword("admin"); } }, "Use Admin"),
@@ -1080,16 +1224,26 @@ function Shell({ session, view, setView, executionMode, setExecutionMode, onLogo
   const [keyDraft, setKeyDraft] = useState("");
   const [keyStatus, setKeyStatus] = useState("");
   const [runtimeStatus, setRuntimeStatus] = useState({
-    mode: "synthetic_demo",
-    model: null,
-    openAIAvailable: false,
-    apiKeyLocation: "server_only",
+    mode: publicHostedDemo && sessionStorage.getItem(browserApiKeyStorageKey) ? "live_openai" : "synthetic_demo",
+    model: publicHostedDemo && sessionStorage.getItem(browserApiKeyStorageKey) ? publicOpenAIModel : null,
+    openAIAvailable: publicHostedDemo && Boolean(sessionStorage.getItem(browserApiKeyStorageKey)),
+    apiKeyLocation: publicHostedDemo ? "browser_session" : "server_only",
     productionActionsEnabled: false,
   });
   useEffect(() => {
-    if (publicDeterministicDemo) {
-      setExecutionMode("synthetic_demo");
-      localStorage.setItem("scalix_execution_mode_v1", "synthetic_demo");
+    if (publicHostedDemo) {
+      const keyAvailable = Boolean(sessionStorage.getItem(browserApiKeyStorageKey));
+      setRuntimeStatus({
+        mode: keyAvailable ? "live_openai" : "synthetic_demo",
+        model: keyAvailable ? publicOpenAIModel : null,
+        openAIAvailable: keyAvailable,
+        apiKeyLocation: "browser_session",
+        productionActionsEnabled: false,
+      });
+      if (!keyAvailable && executionMode === "live_openai") {
+        setExecutionMode("synthetic_demo");
+        localStorage.setItem("scalix_execution_mode_v1", "synthetic_demo");
+      }
       return;
     }
     fetch("/api/runtime-status")
@@ -1112,6 +1266,23 @@ function Shell({ session, view, setView, executionMode, setExecutionMode, onLogo
     event.preventDefault();
     setKeyStatus("Connecting…");
     try {
+      if (publicHostedDemo) {
+        const key = keyDraft.trim();
+        if (key.length < 20) throw new Error("Enter a valid OpenAI project API key.");
+        sessionStorage.setItem(browserApiKeyStorageKey, key);
+        setKeyDraft("");
+        setRuntimeStatus({
+          mode: "live_openai",
+          openAIAvailable: true,
+          model: publicOpenAIModel,
+          apiKeyLocation: "browser_session",
+          productionActionsEnabled: false,
+        });
+        setExecutionMode("live_openai");
+        localStorage.setItem("scalix_execution_mode_v1", "live_openai");
+        setKeyStatus("Connected for this browser tab · validated on first agent run");
+        return;
+      }
       const response = await fetch("/api/runtime-key", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1129,7 +1300,8 @@ function Shell({ session, view, setView, executionMode, setExecutionMode, onLogo
     }
   };
   const disconnectOpenAI = async () => {
-    await fetch("/api/runtime-key", { method: "DELETE" });
+    if (publicHostedDemo) sessionStorage.removeItem(browserApiKeyStorageKey);
+    else await fetch("/api/runtime-key", { method: "DELETE" });
     setRuntimeStatus((current) => ({ ...current, mode: "synthetic_demo", openAIAvailable: false, model: null }));
     setExecutionMode("synthetic_demo");
     localStorage.setItem("scalix_execution_mode_v1", "synthetic_demo");
@@ -1142,21 +1314,17 @@ function Shell({ session, view, setView, executionMode, setExecutionMode, onLogo
     h("aside", { className: "rx-sidebar" },
       h("div", { className: "rx-brand" }, h(LogoMark), h("div", null, h("strong", null, "Scalix AI"), h("span", null, "Readiness Intelligence"))),
       h("nav", { className: "rx-nav" }, links.map(([key, label]) => h("button", { key, className: view === key ? "active" : "", onClick: () => setView(key) }, label))),
-      session.role === "client" && publicDeterministicDemo && h("div", { className: "rx-runtime-badge synthetic_demo rx-public-runtime" },
-        h("span", null, "Public capstone mode"),
-        h("strong", null, "Deterministic evidence model"),
-        h("small", null, "Synthetic ClearOne data · no API key · no external model calls"),
-        h("small", { className: "rx-key-note" }, "Production actions remain disabled")
-      ),
-      session.role === "client" && !publicDeterministicDemo && h("div", { className: `rx-runtime-badge ${executionMode}` },
-        h("span", null, "Execution mode"),
+      session.role === "client" && h("div", { className: `rx-runtime-badge ${executionMode} ${publicHostedDemo ? "rx-public-runtime" : ""}` },
+        h("span", null, publicHostedDemo ? "Public execution mode" : "Execution mode"),
         h("div", { className: "rx-mode-toggle", role: "group", "aria-label": "Scalix execution mode" },
           h("button", {
             type: "button",
             className: executionMode === "live_openai" ? "active live" : "",
             "aria-pressed": executionMode === "live_openai",
             disabled: !runtimeStatus.openAIAvailable,
-            title: runtimeStatus.openAIAvailable ? `Use ${runtimeStatus.model}` : "A server-side OpenAI API key is required",
+            title: runtimeStatus.openAIAvailable
+              ? `Use ${runtimeStatus.model}`
+              : publicHostedDemo ? "Connect your OpenAI API key below" : "A server-side OpenAI API key is required",
             onClick: () => chooseExecutionMode("live_openai"),
           }, "Analysis mode"),
           h("button", {
@@ -1168,11 +1336,11 @@ function Shell({ session, view, setView, executionMode, setExecutionMode, onLogo
         ),
         h("strong", null, executionMode === "live_openai" ? runtimeStatus.model : "Repeatable evidence calculation"),
         h("small", null, runtimeStatus.openAIAvailable
-          ? "Server-side key available · production actions disabled"
-          : "Live mode unavailable · connect a server-side key"),
+          ? `${publicHostedDemo ? "Browser-session key" : "Server-side key"} available · production actions disabled`
+          : `Live mode unavailable · connect ${publicHostedDemo ? "your key" : "a server-side key"}`),
         !runtimeStatus.openAIAvailable
           ? h("form", { className: "rx-key-connect", onSubmit: connectOpenAI },
-              h("label", null, "OpenAI API key"),
+              h("label", null, publicHostedDemo ? "OpenAI API key (BYOK)" : "OpenAI API key"),
               h("input", {
                 type: "password",
                 value: keyDraft,
@@ -1185,7 +1353,9 @@ function Shell({ session, view, setView, executionMode, setExecutionMode, onLogo
             )
           : h("button", { className: "rx-disconnect-key", type: "button", onClick: disconnectOpenAI }, "Disconnect key"),
         keyStatus && h("small", { className: "rx-key-status", role: "status" }, keyStatus),
-        h("small", { className: "rx-key-note" }, "Held only in local server memory until restart")
+        h("small", { className: "rx-key-note" }, publicHostedDemo
+          ? "Capstone BYOK mode: held only in this tab and sent directly to OpenAI. Clear after use. Production deployments should use a backend."
+          : "Held only in local server memory until restart")
       ),
       h("div", { className: "rx-side-card" }, h("span", null, "Logged in as"), h("strong", null, session.display), h("p", null, session.role === "admin" ? "Admin console" : "Client workspace")),
       h("div", { className: "rx-side-card" }, h("span", null, "Human boundary"), h("p", null, "Scalix AI forecasts and recommends. Executive approval is required before engineering action.")),
@@ -1585,7 +1755,7 @@ function AgentConsole({ target, salesForecast, executionMode, modelAssumptions, 
             disabled: Boolean(running),
             onClick: () => runAll("synthetic_demo"),
           }, running === "all-deterministic" ? "Running deterministic regression…" : "Run deterministic regression"),
-          !publicDeterministicDemo && h("button", {
+          h("button", {
             className: "rx-primary rx-run-all rx-run-all-live",
             type: "button",
             disabled: Boolean(running) || executionMode !== "live_openai",
@@ -1593,11 +1763,11 @@ function AgentConsole({ target, salesForecast, executionMode, modelAssumptions, 
             onClick: () => runAll("live_openai"),
           }, running === "all-live" ? "Running OpenAI agent evaluations…" : "Run OpenAI agent evaluations")
         ),
-        h("p", { className: "rx-console-cost-note" }, publicDeterministicDemo
-          ? "Public capstone mode runs repeatable synthetic evidence calculations with no external model calls."
-          : executionMode === "live_openai"
+        h("p", { className: "rx-console-cost-note" }, executionMode === "live_openai"
             ? "Analysis Mode runs the full analyst and independent-review workflow for every scenario and may use up to 30 model calls."
-            : "Switch the execution toggle to Analysis Mode to enable the OpenAI evaluation batch."),
+            : publicHostedDemo
+              ? "Deterministic mode runs without a key. Connect your key in Settings and select Analysis Mode to run OpenAI evaluations."
+              : "Switch the execution toggle to Analysis Mode to enable the OpenAI evaluation batch."),
         h("nav", { className: "rx-agent-case-list", "aria-label": "Capacity scenarios" },
           agentConsoleScenarios.map((scenario) => h("button", {
             key: scenario.caseId,
@@ -1770,9 +1940,11 @@ function Dashboard({
         },
       });
     } catch (requestError) {
-      setError(publicDeterministicDemo
-        ? "The deterministic scenario could not be calculated. Clear the scenario and try again."
-        : "Live agent orchestration is unavailable. Start Scalix with node server.js and try again.");
+      setError(executionMode === "live_openai"
+        ? publicHostedDemo
+          ? "Live agent orchestration could not complete. Check the connected key, quota, model access, and browser network policy, or switch to Deterministic mode."
+          : "Live agent orchestration is unavailable. Start Scalix with node server.js and try again."
+        : "The deterministic scenario could not be calculated. Clear the scenario and try again.");
     } finally {
       setLoading(false);
     }
@@ -2667,6 +2839,7 @@ function ScenarioAnswer({
             : "Safe fallback"
       }`)
     ),
+    analysis.mode === "synthetic_fallback" && h("p", { className: "rx-agent-error", role: "status" }, analysis.guardrail.message),
     h("p", null, h("strong", null, "Question: "), question),
     h("article", { className: `rx-executive-scenario-head ${escalationOnly ? "escalate" : "review"}` },
       h("div", null,
@@ -2869,8 +3042,10 @@ function AgentEvals({ services, readiness, target, salesForecast, executionMode,
         ...baseResults,
         [item.evalId]: {
           ...baseResults[item.evalId],
-          actual: publicDeterministicDemo
-            ? "ERROR — deterministic evaluation could not be completed in this browser."
+          actual: publicHostedDemo
+            ? executionMode === "live_openai"
+              ? "ERROR — live browser evaluation could not complete; check key, quota, model access, or network policy."
+              : "ERROR — deterministic evaluation could not be completed in this browser."
             : "ERROR — start Scalix with node server.js and rerun.",
           reviewer: "NOT RUN",
           lastRun: new Date().toISOString(),

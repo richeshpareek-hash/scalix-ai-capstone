@@ -705,7 +705,7 @@ function buildAnalysisPayload({ question, caseId, target, readiness, services, b
   };
 }
 
-module.exports = {
+const SCALIX_AGENT_CORE = {
   ACRS_WEIGHTS,
   ACRS_THRESHOLDS,
   EVAL_CASES,
@@ -722,3 +722,6 @@ module.exports = {
   validateWorker,
   fallbackReviewer,
 };
+
+if (typeof module !== 'undefined') module.exports = SCALIX_AGENT_CORE;
+if (typeof window !== 'undefined') window.SCALIX_AGENT_CORE = SCALIX_AGENT_CORE;
