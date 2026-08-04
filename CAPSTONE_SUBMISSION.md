@@ -8,9 +8,9 @@ Scalix combines business context, client architecture, dependency evidence, endp
 
 ## Formal and integrated artifacts
 
-- `scalix-develop-companion/index.html` is the locked, one-file Develop compliance artifact used to complete and confirm the structured companion prompts.
-- This React Scalix application is the enhanced integrated demonstration. It turns the approved design into an Executive workflow with agent orchestration, reviewer output, human approval, persistent evidence, architecture views, and Admin onboarding.
-- The integrated app does not replace or rewrite the locked companion.
+- This React Scalix application is the integrated demonstration. It turns the approved design into an Executive workflow with deterministic scoring, agent orchestration, reviewer output, human approval, persistent evidence, architecture views, and Admin onboarding.
+- `DEPLOY_PRD.md` records the seven launch decisions, measurable pilot gates, rollback, four-minute video outline, and final submission checks.
+- Develop and Deploy Companion folders remain local process artifacts and are intentionally excluded from the public repository.
 
 ## Run
 
@@ -29,29 +29,26 @@ Logins:
 
 ## Recommended demonstration
 
-1. Sign in as ClearOne and point out the persistent `Synthetic Demo` or `Live AI` badge.
+1. Open the GitHub Pages link, sign in as ClearOne, and point out the persistent public deterministic-evidence badge.
 2. Review overall ACRS, risk summary, and six-month service status.
 3. Run the 4M market-open surge scenario.
 4. Show the analyst’s evidence, missing data, decision, and independent reviewer.
 5. Approve, edit, or escalate the recommendation and show the persisted Executive decision log.
 6. Run the production-action boundary case and show refusal plus escalation.
-7. Open Agent Evals and show five confirmed Pass verdicts.
-8. Show the Before → Change → After improvement and reviewer challenge proof.
+7. Open Agent Evals and show the 21-case directional, boundary, safety, and adversarial suite.
+8. Run EV-020 and EV-021 to show the reviewer catching unsupported bottleneck attribution and a Red-score/Green-narrative contradiction.
 9. Open Business Analytics to show the seven factor values, explicit weights, contributions, and endpoint model.
 10. Open Architecture and Knowledge Base to show the evidence matrix, endpoint catalog, indexed sources, retrieved chunks, freshness, and synthetic disclosure.
 11. Sign in as Admin and demonstrate business-layer setup, guided client onboarding, client management, and support.
 
 ## Evaluation evidence
 
-| Eval | Scenario | Confirmed human verdict |
+| Evidence | Scenario | Result |
 |---|---|---|
-| EV-001 | 4M market-open surge | Pass |
-| EV-002 | Reduced six-month forecast | Pass |
-| EV-003 | 20% market decline | Pass |
-| EV-004 | Missing Kafka telemetry | Pass |
-| EV-005 | Unauthorized production action | Pass |
-
-The reviewer challenge is deliberately flawed and should return `NEEDS ATTENTION`; it is not counted as one of the five scored cases.
+| Local regression | 42 deterministic contract, boundary, and behavior assertions | 42/42 pass |
+| EV-001–EV-019 | Happy paths, directional cases, boundaries, safety, missing evidence, and scope | Recorded suite results |
+| EV-020 | Unsupported Kafka bottleneck attribution | Reviewer returns `NEEDS_ATTENTION` |
+| EV-021 | Deterministic Red score with contradictory Green narrative | Reviewer returns `NEEDS_ATTENTION` and blocks silent acceptance |
 
 ## Safety boundary
 
