@@ -2153,7 +2153,6 @@ function Dashboard({
     ),
     error && h("p", { className: "rx-error rx-agent-error" }, error),
     h("section", { className: "rx-kpis" },
-      h(AcrsCard, { readiness: executiveReadiness }),
       h(CapacityPositionCard, { position: executiveCapacityPosition, scenarioActive: Boolean(answer) }),
       h(Kpi, { label: "Services needing attention", value: `${executiveServices.filter((service) => service.status !== "Green").length} / ${executiveServices.length}`, detail: answer ? "Ask Scalix scenario · Red or Amber" : "Baseline · Red or Amber" }),
       h(Kpi, { label: answer ? "Scenario Trades/Day" : "Forecast Trades/Day", value: money.format(executiveTarget.equityTrades), detail: `${executiveTarget.peakMultiplier}x market-open peak` }),
@@ -2164,7 +2163,6 @@ function Dashboard({
         h("span", null, "Baseline vs Ask Scalix"),
         h("strong", null, compactExecutiveText(answer.question, 110))
       ),
-      h(ComparisonMetric, { label: "Overall ACRS", baseline: readiness.score, scenario: executiveReadiness.score, suffix: "/100" }),
       h(ComparisonMetric, {
         label: "Overall capacity position",
         baseline: baselineCapacityPosition.forecast.utilizationPct,
@@ -2187,7 +2185,7 @@ function Dashboard({
           h("h2", null, "Executive Summary")
         ),
         h("p", null, answer
-          ? `Baseline ACRS ${readiness.score} (${readiness.status}) versus Ask Scalix ACRS ${executiveReadiness.score} (${executiveReadiness.status}).`
+          ? `Baseline capacity position ${baselineCapacityPosition.forecast.utilizationPct}% (${baselineCapacityPosition.forecast.status}) versus Ask Scalix ${executiveCapacityPosition.forecast.utilizationPct}% (${executiveCapacityPosition.forecast.status}).`
           : "Current six-month posture based on the saved sales forecast, architecture assumptions, and available evidence.")
       ),
       h("div", { className: "rx-executive-decision-grid" },
@@ -2195,12 +2193,12 @@ function Dashboard({
         h(ExecutivePanelHeader, {
           icon: "summary",
           kicker: "Executive briefing",
-          title: answer ? "Scenario readiness posture" : "Baseline readiness posture",
-          aside: h(StatusChip, { status: executiveReadiness.status }),
+          title: answer ? "Scenario capacity posture" : "Baseline capacity posture",
+          aside: h(StatusChip, { status: executiveCapacityPosition.forecast.status }),
         }),
-        h("h3", null, executiveReadiness.status === "Green"
+        h("h3", null, executiveCapacityPosition.forecast.status === "Green"
           ? "Growth plan is supported by the current capacity model."
-          : executiveReadiness.status === "Amber"
+          : executiveCapacityPosition.forecast.status === "Amber"
             ? "Validate constrained services before forecast sign-off."
             : answer ? "The Ask Scalix scenario requires Executive intervention." : "Growth plan exceeds modeled capacity readiness."),
         h("p", null, answer
@@ -2208,12 +2206,12 @@ function Dashboard({
           : "Readiness reflects the current forecast translated through service, endpoint, dependency, and resource assumptions."),
         h("div", { className: "rx-executive-decision" },
           h("span", null, "Recommended posture"),
-          h("strong", null, executiveReadiness.status === "Green"
+          h("strong", null, executiveCapacityPosition.forecast.status === "Green"
             ? "Proceed with monitoring"
             : "Approve targeted validation and remediation before committing capacity")
         ),
         h("div", { className: "rx-executive-mini-stats" },
-          h("div", null, h("span", null, answer ? "Baseline → scenario" : "Capacity score"), h("strong", null, answer ? `${readiness.score} → ${executiveReadiness.score}` : `${executiveReadiness.score}/100`)),
+          h("div", null, h("span", null, answer ? "Baseline → scenario" : "Capacity position"), h("strong", null, answer ? `${baselineCapacityPosition.forecast.utilizationPct}% → ${executiveCapacityPosition.forecast.utilizationPct}%` : `${executiveCapacityPosition.forecast.utilizationPct}%`)),
           h("div", null, h("span", null, "Services flagged"), h("strong", null, `${executiveServices.filter((service) => service.status !== "Green").length}/${executiveServices.length}`))
         )
       ),

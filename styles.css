@@ -1384,7 +1384,7 @@ tbody tr:hover {
 }
 .rx-kpis {
   display: grid;
-  grid-template-columns: minmax(300px, 1.45fr) repeat(4, minmax(135px, .72fr));
+  grid-template-columns: minmax(300px, 1.45fr) repeat(3, minmax(135px, .72fr));
   gap: 12px;
 }
 .rx-card,
