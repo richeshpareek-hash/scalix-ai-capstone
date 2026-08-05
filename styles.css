@@ -1384,7 +1384,7 @@ tbody tr:hover {
 }
 .rx-kpis {
   display: grid;
-  grid-template-columns: minmax(330px, 1.55fr) repeat(3, minmax(150px, .8fr));
+  grid-template-columns: minmax(300px, 1.45fr) repeat(4, minmax(135px, .72fr));
   gap: 12px;
 }
 .rx-card,
@@ -1416,6 +1416,28 @@ tbody tr:hover {
   color: #667085;
   font-size: 13px;
   line-height: 1.45;
+}
+.rx-capacity-position-card > strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.rx-capacity-position-card > strong b {
+  color: #2563eb;
+  font-size: inherit;
+}
+.rx-capacity-position-card > strong b.over { color: #dc2626; }
+.rx-capacity-position-card > strong i {
+  color: #94a3b8;
+  font-size: 16px;
+  font-style: normal;
+}
+.rx-capacity-position-card > small {
+  display: block;
+  margin-top: 5px;
+  color: #667085;
+  font-size: 10.5px;
+  line-height: 1.35;
 }
 .rx-acrs {
   display: grid;
@@ -4060,6 +4082,9 @@ tbody tr:hover {
 .rx-executive-dashboard-v2 .rx-kpi > span,
 .rx-executive-dashboard-v2 .rx-acrs span { color: #94a3b8; }
 .rx-executive-dashboard-v2 .rx-kpi strong { font-size: 20px; }
+.rx-executive-dashboard-v2 .rx-capacity-position-card > strong b { color: #60a5fa; }
+.rx-executive-dashboard-v2 .rx-capacity-position-card > strong b.over { color: #f87171; }
+.rx-executive-dashboard-v2 .rx-capacity-position-card > small { color: #94a3b8; }
 .rx-executive-dashboard-v2 .rx-executive-panel {
   min-height: 0;
   background: rgba(15, 27, 46, .72);

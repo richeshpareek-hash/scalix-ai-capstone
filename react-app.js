@@ -671,6 +671,29 @@ function recommendedPerformanceTests(target, eod, assumptions = defaultModelAssu
   ];
 }
 
+function calculateCapacityPosition(target, assumptions = defaultModelAssumptions) {
+  const summarize = (endpoints) => endpoints.reduce((limiting, endpoint) => {
+    const utilization = endpoint.projectedRps / Math.max(1, endpoint.safeRps);
+    if (!limiting || utilization > limiting.utilization) {
+      return {
+        service: endpoint.service,
+        path: endpoint.path,
+        projectedRps: endpoint.projectedRps,
+        safeRps: endpoint.safeRps,
+        utilization,
+        utilizationPct: Math.round(utilization * 100),
+        headroomPct: Math.round((1 - utilization) * 100),
+      };
+    }
+    return limiting;
+  }, null);
+
+  return {
+    current: summarize(calculateEndpoints(assumptions.baseline, assumptions)),
+    forecast: summarize(calculateEndpoints(target, assumptions)),
+  };
+}
+
 function calculateServices(target, assumptions = defaultModelAssumptions) {
   const baseline = assumptions.baseline;
   const workload = calculateAmplifiedWorkload(target, assumptions);
@@ -1872,6 +1895,8 @@ function Dashboard({
   const executiveReadiness = answer?.simulation?.scenarioReadiness || readiness;
   const executiveTarget = answer?.simulation?.scenarioTarget || target;
   const executiveEod = calculateEodReadiness(executiveTarget, modelAssumptions);
+  const baselineCapacityPosition = calculateCapacityPosition(target, modelAssumptions);
+  const executiveCapacityPosition = calculateCapacityPosition(executiveTarget, modelAssumptions);
   const executivePerformanceTests = recommendedPerformanceTests(executiveTarget, executiveEod, modelAssumptions);
   const riskConcentrations = buildRiskConcentrations(executiveServices);
   const scenarioRecommendationItems = answer
@@ -1990,6 +2015,7 @@ function Dashboard({
     error && h("p", { className: "rx-error rx-agent-error" }, error),
     h("section", { className: "rx-kpis" },
       h(AcrsCard, { readiness: executiveReadiness }),
+      h(CapacityPositionCard, { position: executiveCapacityPosition, scenarioActive: Boolean(answer) }),
       h(Kpi, { label: "Services needing attention", value: `${executiveServices.filter((service) => service.status !== "Green").length} / ${executiveServices.length}`, detail: answer ? "Ask Scalix scenario · Red or Amber" : "Baseline · Red or Amber" }),
       h(Kpi, { label: answer ? "Scenario Trades/Day" : "Forecast Trades/Day", value: money.format(executiveTarget.equityTrades), detail: `${executiveTarget.peakMultiplier}x market-open peak` }),
       h(Kpi, { label: "EOD SLO Headroom", value: `${Math.round(executiveEod.headroom * 100)}%`, detail: `${executiveEod.requiredMinutes} of ${executiveEod.availableMinutes} min window` })
@@ -2000,6 +2026,12 @@ function Dashboard({
         h("strong", null, compactExecutiveText(answer.question, 110))
       ),
       h(ComparisonMetric, { label: "Overall ACRS", baseline: readiness.score, scenario: executiveReadiness.score, suffix: "/100" }),
+      h(ComparisonMetric, {
+        label: "Limiting capacity use",
+        baseline: baselineCapacityPosition.forecast.utilizationPct,
+        scenario: executiveCapacityPosition.forecast.utilizationPct,
+        suffix: "%",
+      }),
       h(ComparisonMetric, {
         label: "Services flagged",
         baseline: services.filter((service) => service.status !== "Green").length,
@@ -2493,6 +2525,22 @@ function AcrsCard({ readiness }) {
 
 function Kpi({ label, value, detail }) {
   return h("article", { className: "rx-kpi" }, h("span", null, label), h("strong", null, value), h("p", null, detail));
+}
+
+function CapacityPositionCard({ position, scenarioActive = false }) {
+  const overSafeBy = Math.max(0, position.forecast.utilizationPct - 100);
+  return h("article", { className: "rx-kpi rx-capacity-position-card" },
+    h("span", null, "Capacity Position"),
+    h("strong", null,
+      h("b", { className: position.current.utilizationPct >= 100 ? "over" : "current" }, `${position.current.utilizationPct}%`),
+      h("i", { "aria-hidden": "true" }, "→"),
+      h("b", { className: position.forecast.utilizationPct >= 100 ? "over" : "forecast" }, `${position.forecast.utilizationPct}%`)
+    ),
+    h("p", null, `Current → ${scenarioActive ? "scenario" : "six-month forecast"} at the limiting endpoint`),
+    h("small", null, overSafeBy
+      ? `${position.forecast.path} is ${overSafeBy}% over assumed safe capacity`
+      : `${position.forecast.path} retains ${position.forecast.headroomPct}% modeled headroom`)
+  );
 }
 
 function ComparisonMetric({ label, baseline, scenario, suffix = "" }) {
