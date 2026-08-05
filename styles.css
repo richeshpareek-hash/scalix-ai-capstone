@@ -4268,6 +4268,12 @@ tbody tr:hover {
   border-color: rgba(148, 163, 184, .16);
   background: rgba(2, 6, 23, .28);
 }
+.rx-executive-dashboard-v2 .rx-performance-test dt {
+  color: #bfdbfe;
+}
+.rx-executive-dashboard-v2 .rx-performance-test dd {
+  color: #ffffff;
+}
 .rx-executive-dashboard-v2 .rx-service-portfolio {
   --panel-soft: rgba(37, 99, 235, .12);
   --panel-ink: #93c5fd;

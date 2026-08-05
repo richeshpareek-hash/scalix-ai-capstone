@@ -2265,10 +2265,8 @@ function Dashboard({
     ),
     h(ServiceTable, {
       services: executiveServices,
-      target: executiveTarget,
       executive: true,
       baselineServices: answer ? services : null,
-      baselineTarget: answer ? target : null,
     }),
     h(DashboardActionQueues, {
       items: approvalItems,
@@ -2899,8 +2897,7 @@ function RiskConcentrationItem({ risk, rank }) {
     h("div", { className: "rx-risk-theme-icon" }, h(ExecutiveIcon, { type: `risk-${rank}` })),
     h("div", null,
       h("strong", null, risk.name),
-      h("p", null, risk.description),
-      h("span", null, `${risk.flagged}/${risk.total} services flagged · lowest ACRS ${risk.score}`)
+      h("p", null, risk.description)
     ),
     h(StatusChip, { status: risk.status })
   );
@@ -2913,18 +2910,8 @@ function ExecutiveRecommendationItem({ item, rank, onDecision }) {
   );
 }
 
-function ServiceTable({ services, target, executive = false, baselineServices = null, baselineTarget = null }) {
+function ServiceTable({ services, executive = false, baselineServices = null }) {
   const displayedServices = services;
-  const counts = {
-    Red: services.filter((service) => service.status === "Red").length,
-    Amber: services.filter((service) => service.status === "Amber").length,
-    Green: services.filter((service) => service.status === "Green").length,
-  };
-  const baselineCounts = baselineServices ? {
-    Red: baselineServices.filter((service) => service.status === "Red").length,
-    Amber: baselineServices.filter((service) => service.status === "Amber").length,
-    Green: baselineServices.filter((service) => service.status === "Green").length,
-  } : null;
   return h("section", { className: "rx-card rx-table-card rx-service-portfolio" },
     h(ExecutivePanelHeader, {
       icon: "summary",
@@ -2937,12 +2924,6 @@ function ServiceTable({ services, target, executive = false, baselineServices = 
         ? "All services are recalculated for the active Ask Scalix scenario. Each ACRS row compares the saved baseline with the scenario result."
         : "All services ranked by Executive priority. Descriptions are concise; full factor evidence remains in Business Analytics."
       : "Service-level readiness after adding the incremental sales forecast to current production. Rows are ranked from lowest ACRS upward."),
-    h("div", { className: "rx-service-portfolio-summary" },
-      h("div", { className: "red" }, h("span", null, "Red"), h("strong", null, baselineCounts ? `${baselineCounts.Red} → ${counts.Red}` : counts.Red), h("small", null, baselineCounts ? "Baseline → Ask Scalix" : "Remediate before growth")),
-      h("div", { className: "amber" }, h("span", null, "Amber"), h("strong", null, baselineCounts ? `${baselineCounts.Amber} → ${counts.Amber}` : counts.Amber), h("small", null, baselineCounts ? "Baseline → Ask Scalix" : "Validate constraints")),
-      h("div", { className: "green" }, h("span", null, "Green"), h("strong", null, baselineCounts ? `${baselineCounts.Green} → ${counts.Green}` : counts.Green), h("small", null, baselineCounts ? "Baseline → Ask Scalix" : "Ready to monitor")),
-      h("div", { className: "forecast" }, h("span", null, "Projected equity load"), h("strong", null, baselineTarget ? `${money.format(baselineTarget.equityTrades)} → ${money.format(target.equityTrades)}` : money.format(target.equityTrades)), h("small", null, baselineTarget ? "Baseline → Ask Scalix" : "Current baseline + incremental sales"))
-    ),
     !executive && h(RagLegend),
     h("div", { className: "rx-table-wrap" },
       h("table", { className: "rx-table rx-service-readiness-table" },
