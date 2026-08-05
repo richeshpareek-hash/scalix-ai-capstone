@@ -336,6 +336,20 @@ function statusFor(score) {
   return "Red";
 }
 
+function capacityStatusFor(utilizationPct) {
+  if (utilizationPct < 80) return "Green";
+  if (utilizationPct <= 100) return "Amber";
+  return "Red";
+}
+
+function capacityReadinessFor(utilization) {
+  const ratio = Math.max(0, Number(utilization));
+  if (ratio <= 0.80) return 1;
+  if (ratio <= 1) return 1 - ((ratio - 0.80) / 0.20) * 0.50;
+  if (ratio <= 1.25) return 0.50 - ((ratio - 1) / 0.25) * 0.50;
+  return 0;
+}
+
 function statusClass(status) {
   return status.toLowerCase().replace(/\s+/g, "-");
 }
@@ -548,7 +562,8 @@ function calculateEndpoints(target, assumptions = defaultModelAssumptions) {
     const headroomPct = Math.round((1 - projectedRps / configured.safeRps) * 100);
     const exceedsSafeCapacity = projectedRps > configured.safeRps;
     const resourceHeadroom = calculateResourceHeadroom(endpoint, loadFactor, assumptions);
-    const rpsCapacityReadiness = clamp((headroomPct / 100 + 0.10) / 0.50);
+    const utilizationRatio = projectedRps / Math.max(1, configured.safeRps);
+    const rpsCapacityReadiness = capacityReadinessFor(utilizationRatio);
     const endpointReadiness = Math.min(rpsCapacityReadiness, resourceHeadroom.capacityReadiness, resourceHeadroom.utilizationReadiness);
     const workloadBreakdown = endpoint.path === "/ledger/post"
       ? {
@@ -569,6 +584,7 @@ function calculateEndpoints(target, assumptions = defaultModelAssumptions) {
       changePct,
       headroomPct,
       capacityState: exceedsSafeCapacity ? "Exceeds safe capacity" : "Within safe capacity",
+      capacityStatus: capacityStatusFor(Math.round(utilizationRatio * 100)),
       evidenceSource: "Applied assumption · Datadog pending",
       limiterStatus: exceedsSafeCapacity ? "Assumed endpoint limit" : "Assumed resource limiter",
       resourceHeadroom,
@@ -717,11 +733,13 @@ function calculateCapacityPosition(services) {
       utilization: currentUtilization,
       utilizationPct: Math.round(currentUtilization * 100),
       headroomPct: Math.round((1 - currentUtilization) * 100),
+      status: capacityStatusFor(Math.round(currentUtilization * 100)),
     },
     forecast: {
       utilization: forecastUtilization,
       utilizationPct: Math.round(forecastUtilization * 100),
       headroomPct: Math.round((1 - forecastUtilization) * 100),
+      status: capacityStatusFor(Math.round(forecastUtilization * 100)),
     },
     limiting,
     serviceCount: servicePositions.length,
@@ -772,21 +790,18 @@ function calculateServices(target, assumptions = defaultModelAssumptions) {
     const serviceGrowthRatio = Math.max(0, 1 + directPressure);
     const endpoint = endpointForService[service.name];
     const dependencyModel = calculateDependencyReadiness(service.name, endpointForService);
-    const modeledCapacityReadiness = clamp((service.base - demandPressure * service.sensitivity) / 100);
-    const modeledLatencyReadiness = clamp((service.base + 15 - demandPressure * service.sensitivity * 0.65) / 100);
-    const modeledUtilizationReadiness = clamp((service.base + 10 - demandPressure * service.sensitivity * 0.85) / 100);
+    const modeledCapacityReadiness = clamp(0.90 - Math.max(0, demandPressure) * 0.45);
+    const modeledLatencyReadiness = clamp(0.90 - Math.max(0, demandPressure) * 0.25);
+    const modeledUtilizationReadiness = clamp(0.90 - Math.max(0, demandPressure) * 0.30);
     const latencyMetric = endpoint?.resourceHeadroom.metrics.find((metric) => metric.key === "latency");
     const latencyHeadroomReadiness = latencyMetric ? clamp((latencyMetric.headroom + 0.10) / 0.50) : 1;
     const factors = {
-      capacityHeadroom: endpoint ? Math.min(modeledCapacityReadiness, endpoint.endpointReadiness) : modeledCapacityReadiness,
-      latencyTrend: endpoint ? Math.min(modeledLatencyReadiness, latencyHeadroomReadiness) : modeledLatencyReadiness,
-      resourceUtilization: endpoint ? Math.min(modeledUtilizationReadiness, endpoint.resourceHeadroom.utilizationReadiness) : modeledUtilizationReadiness,
-      businessGrowth: clamp(0.95 - Math.max(0, serviceGrowthRatio - 0.75) * 0.35),
-      dependencyResilience: Math.min(
-        clamp((service.base + 12 - demandPressure * service.sensitivity * 0.5) / 100),
-        dependencyModel?.readiness ?? 1
-      ),
-      reliability: clamp((service.base + 18 - demandPressure * service.sensitivity * 0.35) / 100),
+      capacityHeadroom: endpoint ? endpoint.rpsCapacityReadiness : modeledCapacityReadiness,
+      latencyTrend: endpoint ? latencyHeadroomReadiness : modeledLatencyReadiness,
+      resourceUtilization: endpoint ? endpoint.resourceHeadroom.utilizationReadiness : modeledUtilizationReadiness,
+      businessGrowth: clamp(1 - Math.max(0, serviceGrowthRatio - 1) * 0.50),
+      dependencyResilience: dependencyModel?.readiness ?? 0.82,
+      reliability: clamp(0.90 - Math.max(0, demandPressure) * 0.25),
       evidenceConfidence: endpoint ? 0.70 : 0.82,
     };
     const score = Math.round(weightedScore(factors));
@@ -1642,7 +1657,7 @@ function ClientWorkspace({ view, setView, target, setTarget, executionMode, mode
   if (view === "agent-evals") return h(AgentEvals, { services, readiness, target: projectedTarget, salesForecast: target, executionMode, modelAssumptions });
   if (view === "pilot-trust") return h(PilotTrust, { services, readiness, approvalItems, executionMode });
   if (view === "business-analytics") return h(BusinessAnalytics, { services, readiness, target: projectedTarget, modelAssumptions });
-  if (view === "architecture") return h(Architecture, { target: projectedTarget, modelAssumptions, setModelAssumptions });
+  if (view === "architecture") return h(Architecture, { target: projectedTarget, salesForecast: target, setTarget, modelAssumptions, setModelAssumptions });
   if (view === "sales-forecast") return h(SalesForecast, { target, projectedTarget, setTarget, readiness, modelAssumptions });
   if (view === "knowledge") return h(KnowledgeBase);
   if (view === "approval-queue") return h(ApprovalQueue, {
@@ -2564,7 +2579,10 @@ function Kpi({ label, value, detail }) {
 
 function CapacityPositionCard({ position, scenarioActive = false }) {
   return h("article", { className: "rx-kpi rx-capacity-position-card" },
-    h("span", null, "Overall Capacity Position"),
+    h("div", { className: "rx-capacity-position-header" },
+      h("span", null, "Overall Capacity Position"),
+      h(StatusChip, { status: position.forecast.status })
+    ),
     h("strong", null,
       h("b", { className: position.current.utilizationPct >= 100 ? "over" : "current" }, `${position.current.utilizationPct}%`),
       h("i", { "aria-hidden": "true" }, "→"),
@@ -2698,8 +2716,8 @@ function ServiceTable({ services, target, executive = false, baselineServices = 
     h("div", { className: "rx-table-wrap" },
       h("table", { className: "rx-table rx-service-readiness-table" },
         h("thead", null, h("tr", null, (executive
-          ? ["Priority", "Service", baselineServices ? "Baseline → Ask ACRS / RAG" : "ACRS / RAG", "Capacity Position", "Key risk", "Decision requested"]
-          : ["Priority", "Service", "ACRS", "RAG", "Capacity Position", "Limiting headroom", "Primary limiter", "Executive next action"]
+          ? ["Priority", "Service", baselineServices ? "Baseline → Ask ACRS / Readiness RAG" : "ACRS / Readiness RAG", "Capacity Position / RAG", "Key risk", "Decision requested"]
+          : ["Priority", "Service", "ACRS", "Readiness RAG", "Capacity Position / RAG", "Limiting headroom", "Primary limiter", "Executive next action"]
         ).map((head) => h("th", { key: head }, head)))),
         h("tbody", null, displayedServices.map((service, index) => {
           const endpoint = selectWeakestEndpoint(service.ownedEndpoints);
@@ -2719,7 +2737,11 @@ function ServiceTable({ services, target, executive = false, baselineServices = 
                 : service.score),
               h(StatusChip, { status: service.status })
             )),
-            h("td", null, endpoint ? h("div", { className: "rx-throughput-pair" }, h("strong", null, `${endpoint.projectedRps} RPS`), h("span", null, `${endpoint.safeRps} safe (${currentCapacityPct}% → ${projectedCapacityPct}%)`)) : "Not modeled"),
+            h("td", null, endpoint ? h("div", { className: "rx-throughput-pair" },
+              h("strong", null, `${endpoint.projectedRps} RPS`),
+              h("span", null, `${endpoint.safeRps} safe (${currentCapacityPct}% → ${projectedCapacityPct}%)`),
+              h(StatusChip, { status: capacityStatusFor(projectedCapacityPct) })
+            ) : "Not modeled"),
             h("td", { className: "rx-executive-key-risk" }, compactExecutiveText(service.limiter, 95)),
             h("td", { className: "rx-next-action" }, h("strong", null, compactExecutiveText(service.action, 110)))
           );
@@ -2739,7 +2761,8 @@ function ServiceTable({ services, target, executive = false, baselineServices = 
           h("td", null, endpoint
             ? h("div", { className: "rx-throughput-pair" },
                 h("strong", null, `${endpoint.projectedRps} RPS`),
-                h("span", null, `${endpoint.safeRps} safe (${currentCapacityPct}% → ${projectedCapacityPct}%)`)
+                h("span", null, `${endpoint.safeRps} safe (${currentCapacityPct}% → ${projectedCapacityPct}%)`),
+                h(StatusChip, { status: capacityStatusFor(projectedCapacityPct) })
               )
             : "Not modeled"),
           h("td", null, limitingHeadroom == null
@@ -2773,11 +2796,22 @@ function RagLegend() {
       h("strong", null, level.range),
       h("span", null, level.meaning)
     )),
+    h("span", { className: "rx-rag-legend-title rx-capacity-legend-title" }, "Capacity RAG"),
+    [
+      { status: "Green", range: "<80%", meaning: "Within safe throughput" },
+      { status: "Amber", range: "80–100%", meaning: "Constrained capacity" },
+      { status: "Red", range: ">100%", meaning: "Safe capacity exceeded" },
+    ].map((level) => h("div", { key: `capacity-${level.status}`, className: "rx-rag-legend-item" },
+      h(StatusChip, { status: level.status }),
+      h("strong", null, level.range),
+      h("span", null, level.meaning)
+    )),
     h("details", { className: "rx-rag-methodology" },
       h("summary", null, "Definitions and ACRS formula"),
       h("ul", { className: "rx-rag-definitions" },
         h("li", null, h("strong", null, "Primary Limiter:"), " the modeled resource, dependency, endpoint, or processing constraint most likely to restrict forecast capacity."),
         h("li", null, h("strong", null, "Next Action:"), " a proposed validation or remediation step requiring Executive approval and engineering confirmation."),
+        h("li", null, h("strong", null, "Capacity RAG:"), " Green below 80% utilization, Amber from 80% through 100%, and Red above 100% of safe RPS."),
         h("li", null, h("strong", null, "Projected vs safe:"), " the weakest modeled endpoint’s projected RPS compared with its assumed safe RPS."),
         h("li", null, h("strong", null, "Limiting headroom:"), " remaining endpoint headroom, or remaining resource headroom when a resource is the tighter constraint."),
         h("li", { className: "rx-score-formula" },
@@ -3490,9 +3524,11 @@ function PageTitle({ kicker, title, text }) {
   return h("header", { className: "rx-page-header simple" }, h("div", null, h("p", { className: "rx-kicker" }, kicker), h("h1", null, title), h("p", null, text)));
 }
 
-function Architecture({ target, modelAssumptions, setModelAssumptions }) {
+function Architecture({ target, salesForecast, setTarget, modelAssumptions, setModelAssumptions }) {
+  const greenControlBackupKey = "scalix_green_control_backup_v1";
   const [draft, setDraft] = useState(() => normalizeModelAssumptions(modelAssumptions));
   const [confirmation, setConfirmation] = useState("");
+  const [greenControlActive, setGreenControlActive] = useState(() => Boolean(localStorage.getItem(greenControlBackupKey)));
   useEffect(() => setDraft(normalizeModelAssumptions(modelAssumptions)), [modelAssumptions]);
   const forecastEndpoints = calculateEndpoints(target, modelAssumptions);
   const architectureEndpointsByService = forecastEndpoints.reduce((result, endpoint) => ({
@@ -3543,6 +3579,63 @@ function Architecture({ target, modelAssumptions, setModelAssumptions }) {
     setDraft(defaults);
     setModelAssumptions(defaults);
     setConfirmation("Default prototype assumptions restored.");
+  };
+  const runGreenControlTest = () => {
+    if (!greenControlActive) {
+      localStorage.setItem(greenControlBackupKey, JSON.stringify({ modelAssumptions, salesForecast }));
+    }
+    const greenControl = normalizeModelAssumptions({
+      ...modelAssumptions,
+      eod: { ...modelAssumptions.eod, availableMinutes: 600, baselineRequiredMinutes: 180, backlogSensitivity: 0.05 },
+      resourceModifiers: { redisConcentrationPenalty: 1, databaseFallbackPenalty: 1, kafkaDrainPenalty: 1 },
+      endpoints: Object.fromEntries(Object.entries(modelAssumptions.endpoints).map(([path, endpoint]) => [
+        path,
+        { ...endpoint, safeRps: Math.ceil(endpoint.baselineRps / 0.55) },
+      ])),
+      resources: Object.fromEntries(Object.entries(modelAssumptions.resources).map(([path, resource]) => [
+        path,
+        {
+          ...resource,
+          cpu: 30,
+          memory: 30,
+          database: 30,
+          kafka: 30,
+          redis: 30,
+          p95Latency: Math.round(resource.latencySlo * 0.35),
+        },
+      ])),
+    });
+    const noIncrementalSales = {
+      accounts: 0,
+      equityTrades: 0,
+      achTransactions: 0,
+      newPositions: 0,
+      totalPositions: 0,
+      peakMultiplier: greenControl.baseline.peakMultiplier,
+      achPeakMultiplier: greenControl.baseline.achPeakMultiplier,
+      orderFillRate: greenControl.baseline.orderFillRate,
+      executionsPerFilledOrder: greenControl.baseline.executionsPerFilledOrder,
+    };
+    setDraft(greenControl);
+    setModelAssumptions(greenControl);
+    setTarget(noIncrementalSales);
+    setGreenControlActive(true);
+    setConfirmation("Green Control Test active. Incremental sales are zero and synthetic capacity, resources, latency and EOD headroom are set to healthy test values.");
+  };
+  const exitGreenControlTest = () => {
+    try {
+      const backup = JSON.parse(localStorage.getItem(greenControlBackupKey) || "null");
+      if (backup?.modelAssumptions && backup?.salesForecast) {
+        const restored = normalizeModelAssumptions(backup.modelAssumptions);
+        setDraft(restored);
+        setModelAssumptions(restored);
+        setTarget(backup.salesForecast);
+      }
+    } finally {
+      localStorage.removeItem(greenControlBackupKey);
+      setGreenControlActive(false);
+      setConfirmation("Green Control Test closed. The previous ClearOne assumptions and sales forecast were restored.");
+    }
   };
   const architectureAssumptions = [
     {
@@ -3703,6 +3796,9 @@ function Architecture({ target, modelAssumptions, setModelAssumptions }) {
       ),
       h("div", { className: "rx-forecast-actions" },
         h("button", { className: "rx-primary", type: "submit" }, "Save & Recalculate"),
+        greenControlActive
+          ? h("button", { type: "button", onClick: exitGreenControlTest }, "Exit Green Control Test")
+          : h("button", { type: "button", onClick: runGreenControlTest }, "Run Green Control Test"),
         h("button", { type: "button", onClick: () => setDraft(normalizeModelAssumptions(modelAssumptions)) }, "Discard Changes"),
         h("button", { type: "button", onClick: restoreDefaults }, "Restore Defaults")
       ),

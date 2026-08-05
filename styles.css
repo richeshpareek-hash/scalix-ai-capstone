@@ -1422,6 +1422,19 @@ tbody tr:hover {
   align-items: center;
   gap: 7px;
 }
+.rx-capacity-position-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.rx-capacity-position-header > span {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
 .rx-capacity-position-card > strong b {
   color: #2563eb;
   font-size: inherit;
@@ -1438,6 +1451,12 @@ tbody tr:hover {
   color: #667085;
   font-size: 10.5px;
   line-height: 1.35;
+}
+.rx-throughput-pair .rx-status {
+  margin-top: 5px;
+}
+.rx-capacity-legend-title {
+  margin-left: 8px;
 }
 .rx-acrs {
   display: grid;
