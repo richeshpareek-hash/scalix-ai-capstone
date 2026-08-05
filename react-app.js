@@ -29,6 +29,20 @@ const acrsWeights = {
   reliability: 10,
   evidenceConfidence: 5,
 };
+const capacityServiceWeights = {
+  "Real-Time Buying Power": 12,
+  "Order Capture / Routing": 12,
+  "Margin Requirements": 10,
+  "Kafka Event Backbone": 10,
+  "Ledger + Positions": 10,
+  "Settlement + Overnight Batch": 9,
+  "CAT / FINRA Reporting": 8,
+  "CDD / KYC Onboarding": 7,
+  "ACH / Cash Movement": 7,
+  "Basket Order Expansion": 5,
+  "Allocation Service": 5,
+  "Investigations / Breaks": 5,
+};
 const acrsFactorLabels = {
   capacityHeadroom: "Capacity headroom",
   latencyTrend: "Latency trend",
@@ -671,26 +685,47 @@ function recommendedPerformanceTests(target, eod, assumptions = defaultModelAssu
   ];
 }
 
-function calculateCapacityPosition(target, assumptions = defaultModelAssumptions) {
-  const summarize = (endpoints) => endpoints.reduce((limiting, endpoint) => {
-    const utilization = endpoint.projectedRps / Math.max(1, endpoint.safeRps);
-    if (!limiting || utilization > limiting.utilization) {
-      return {
-        service: endpoint.service,
-        path: endpoint.path,
-        projectedRps: endpoint.projectedRps,
-        safeRps: endpoint.safeRps,
-        utilization,
-        utilizationPct: Math.round(utilization * 100),
-        headroomPct: Math.round((1 - utilization) * 100),
-      };
-    }
-    return limiting;
-  }, null);
+function calculateCapacityPosition(services) {
+  const servicePositions = services.map((service) => {
+    const endpoint = selectWeakestEndpoint(service.ownedEndpoints);
+    const weight = capacityServiceWeights[service.name] || 0;
+    const currentUtilization = endpoint ? endpoint.baselineRps / Math.max(1, endpoint.safeRps) : 0;
+    const forecastUtilization = endpoint ? endpoint.projectedRps / Math.max(1, endpoint.safeRps) : 0;
+    return {
+      service: service.name,
+      path: endpoint?.path || "No endpoint mapped",
+      weight,
+      currentUtilization,
+      forecastUtilization,
+      currentPct: Math.round(currentUtilization * 100),
+      forecastPct: Math.round(forecastUtilization * 100),
+    };
+  }).filter((position) => position.weight > 0);
+  const totalWeight = servicePositions.reduce((sum, position) => sum + position.weight, 0) || 1;
+  const currentUtilization = servicePositions.reduce(
+    (sum, position) => sum + position.currentUtilization * position.weight,
+    0
+  ) / totalWeight;
+  const forecastUtilization = servicePositions.reduce(
+    (sum, position) => sum + position.forecastUtilization * position.weight,
+    0
+  ) / totalWeight;
+  const limiting = [...servicePositions].sort((a, b) => b.forecastUtilization - a.forecastUtilization)[0];
 
   return {
-    current: summarize(calculateEndpoints(assumptions.baseline, assumptions)),
-    forecast: summarize(calculateEndpoints(target, assumptions)),
+    current: {
+      utilization: currentUtilization,
+      utilizationPct: Math.round(currentUtilization * 100),
+      headroomPct: Math.round((1 - currentUtilization) * 100),
+    },
+    forecast: {
+      utilization: forecastUtilization,
+      utilizationPct: Math.round(forecastUtilization * 100),
+      headroomPct: Math.round((1 - forecastUtilization) * 100),
+    },
+    limiting,
+    serviceCount: servicePositions.length,
+    totalWeight,
   };
 }
 
@@ -1895,8 +1930,8 @@ function Dashboard({
   const executiveReadiness = answer?.simulation?.scenarioReadiness || readiness;
   const executiveTarget = answer?.simulation?.scenarioTarget || target;
   const executiveEod = calculateEodReadiness(executiveTarget, modelAssumptions);
-  const baselineCapacityPosition = calculateCapacityPosition(target, modelAssumptions);
-  const executiveCapacityPosition = calculateCapacityPosition(executiveTarget, modelAssumptions);
+  const baselineCapacityPosition = calculateCapacityPosition(services);
+  const executiveCapacityPosition = calculateCapacityPosition(executiveServices);
   const executivePerformanceTests = recommendedPerformanceTests(executiveTarget, executiveEod, modelAssumptions);
   const riskConcentrations = buildRiskConcentrations(executiveServices);
   const scenarioRecommendationItems = answer
@@ -2027,7 +2062,7 @@ function Dashboard({
       ),
       h(ComparisonMetric, { label: "Overall ACRS", baseline: readiness.score, scenario: executiveReadiness.score, suffix: "/100" }),
       h(ComparisonMetric, {
-        label: "Limiting capacity use",
+        label: "Overall capacity position",
         baseline: baselineCapacityPosition.forecast.utilizationPct,
         scenario: executiveCapacityPosition.forecast.utilizationPct,
         suffix: "%",
@@ -2528,18 +2563,15 @@ function Kpi({ label, value, detail }) {
 }
 
 function CapacityPositionCard({ position, scenarioActive = false }) {
-  const overSafeBy = Math.max(0, position.forecast.utilizationPct - 100);
   return h("article", { className: "rx-kpi rx-capacity-position-card" },
-    h("span", null, "Capacity Position"),
+    h("span", null, "Overall Capacity Position"),
     h("strong", null,
       h("b", { className: position.current.utilizationPct >= 100 ? "over" : "current" }, `${position.current.utilizationPct}%`),
       h("i", { "aria-hidden": "true" }, "→"),
       h("b", { className: position.forecast.utilizationPct >= 100 ? "over" : "forecast" }, `${position.forecast.utilizationPct}%`)
     ),
-    h("p", null, `Current → ${scenarioActive ? "scenario" : "six-month forecast"} at the limiting endpoint`),
-    h("small", null, overSafeBy
-      ? `${position.forecast.path} is ${overSafeBy}% over assumed safe capacity`
-      : `${position.forecast.path} retains ${position.forecast.headroomPct}% modeled headroom`)
+    h("p", null, `Current → ${scenarioActive ? "scenario" : "six-month forecast"} · weighted across ${position.serviceCount} services`),
+    h("small", null, `Limiter: ${position.limiting.service} ${position.limiting.currentPct}% → ${position.limiting.forecastPct}%`)
   );
 }
 
