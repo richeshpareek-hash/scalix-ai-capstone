@@ -2666,11 +2666,13 @@ function ServiceTable({ services, target, executive = false, baselineServices = 
     h("div", { className: "rx-table-wrap" },
       h("table", { className: "rx-table rx-service-readiness-table" },
         h("thead", null, h("tr", null, (executive
-          ? ["Priority", "Service", baselineServices ? "Baseline → Ask ACRS / RAG" : "ACRS / RAG", "Demand vs safe", "Key risk", "Decision requested"]
-          : ["Priority", "Service", "ACRS", "RAG", "Projected vs safe", "Limiting headroom", "Primary limiter", "Executive next action"]
+          ? ["Priority", "Service", baselineServices ? "Baseline → Ask ACRS / RAG" : "ACRS / RAG", "Capacity Position", "Key risk", "Decision requested"]
+          : ["Priority", "Service", "ACRS", "RAG", "Capacity Position", "Limiting headroom", "Primary limiter", "Executive next action"]
         ).map((head) => h("th", { key: head }, head)))),
         h("tbody", null, displayedServices.map((service, index) => {
           const endpoint = selectWeakestEndpoint(service.ownedEndpoints);
+          const currentCapacityPct = endpoint ? Math.round(endpoint.baselineRps / Math.max(1, endpoint.safeRps) * 100) : null;
+          const projectedCapacityPct = endpoint ? Math.round(endpoint.projectedRps / Math.max(1, endpoint.safeRps) * 100) : null;
           const limitingHeadroom = endpoint
             ? endpoint.limiterStatus === "Assumed endpoint limit"
               ? endpoint.headroomPct
@@ -2685,7 +2687,7 @@ function ServiceTable({ services, target, executive = false, baselineServices = 
                 : service.score),
               h(StatusChip, { status: service.status })
             )),
-            h("td", null, endpoint ? h("div", { className: "rx-throughput-pair" }, h("strong", null, `${endpoint.projectedRps} RPS`), h("span", null, `${endpoint.safeRps} safe`)) : "Not modeled"),
+            h("td", null, endpoint ? h("div", { className: "rx-throughput-pair" }, h("strong", null, `${endpoint.projectedRps} RPS`), h("span", null, `${endpoint.safeRps} safe (${currentCapacityPct}% → ${projectedCapacityPct}%)`)) : "Not modeled"),
             h("td", { className: "rx-executive-key-risk" }, compactExecutiveText(service.limiter, 95)),
             h("td", { className: "rx-next-action" }, h("strong", null, compactExecutiveText(service.action, 110)))
           );
@@ -2705,7 +2707,7 @@ function ServiceTable({ services, target, executive = false, baselineServices = 
           h("td", null, endpoint
             ? h("div", { className: "rx-throughput-pair" },
                 h("strong", null, `${endpoint.projectedRps} RPS`),
-                h("span", null, `${endpoint.safeRps} safe`)
+                h("span", null, `${endpoint.safeRps} safe (${currentCapacityPct}% → ${projectedCapacityPct}%)`)
               )
             : "Not modeled"),
           h("td", null, limitingHeadroom == null
