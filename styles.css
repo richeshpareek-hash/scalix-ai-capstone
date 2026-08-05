@@ -1452,9 +1452,6 @@ tbody tr:hover {
   font-size: 10.5px;
   line-height: 1.35;
 }
-.rx-throughput-pair .rx-status {
-  margin-top: 5px;
-}
 .rx-capacity-legend-title {
   margin-left: 8px;
 }
@@ -1764,13 +1761,18 @@ tbody tr:hover {
 .rx-throughput-pair {
   min-width: 95px;
 }
-.rx-throughput-pair strong,
 .rx-throughput-pair span {
   display: block;
 }
-.rx-throughput-pair strong {
+.rx-throughput-topline {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.rx-throughput-topline > strong {
   color: #101828;
-  font-size: 11.5px;
+  font-size: 13px;
 }
 .rx-throughput-pair span {
   margin-top: 2px;
@@ -4206,6 +4208,7 @@ tbody tr:hover {
   gap: 7px;
 }
 .rx-executive-service-score > strong { font-size: 15px; }
+.rx-executive-dashboard-v2 .rx-throughput-topline > strong { font-size: 15px; }
 .rx-executive-dashboard-v2 .rx-dashboard-queue,
 .rx-executive-dashboard-v2 .rx-queue-recommendation {
   border-color: rgba(148, 163, 184, .16);

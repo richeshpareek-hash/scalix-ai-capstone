@@ -2738,9 +2738,11 @@ function ServiceTable({ services, target, executive = false, baselineServices = 
               h(StatusChip, { status: service.status })
             )),
             h("td", null, endpoint ? h("div", { className: "rx-throughput-pair" },
-              h("strong", null, `${endpoint.projectedRps} RPS`),
-              h("span", null, `${endpoint.safeRps} safe (${currentCapacityPct}% → ${projectedCapacityPct}%)`),
-              h(StatusChip, { status: capacityStatusFor(projectedCapacityPct) })
+              h("div", { className: "rx-throughput-topline" },
+                h("strong", null, `${endpoint.projectedRps} RPS`),
+                h(StatusChip, { status: capacityStatusFor(projectedCapacityPct) })
+              ),
+              h("span", null, `${endpoint.safeRps} safe (${currentCapacityPct}% → ${projectedCapacityPct}%)`)
             ) : "Not modeled"),
             h("td", { className: "rx-executive-key-risk" }, compactExecutiveText(service.limiter, 95)),
             h("td", { className: "rx-next-action" }, h("strong", null, compactExecutiveText(service.action, 110)))
@@ -2760,9 +2762,11 @@ function ServiceTable({ services, target, executive = false, baselineServices = 
           h("td", null, h(StatusChip, { status: service.status })),
           h("td", null, endpoint
             ? h("div", { className: "rx-throughput-pair" },
-                h("strong", null, `${endpoint.projectedRps} RPS`),
-                h("span", null, `${endpoint.safeRps} safe (${currentCapacityPct}% → ${projectedCapacityPct}%)`),
-                h(StatusChip, { status: capacityStatusFor(projectedCapacityPct) })
+                h("div", { className: "rx-throughput-topline" },
+                  h("strong", null, `${endpoint.projectedRps} RPS`),
+                  h(StatusChip, { status: capacityStatusFor(projectedCapacityPct) })
+                ),
+                h("span", null, `${endpoint.safeRps} safe (${currentCapacityPct}% → ${projectedCapacityPct}%)`)
               )
             : "Not modeled"),
           h("td", null, limitingHeadroom == null
