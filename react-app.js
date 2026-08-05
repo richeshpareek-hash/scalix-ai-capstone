@@ -320,6 +320,36 @@ function normalizeModelAssumptions(value = {}) {
   };
 }
 
+function applyRemediationBaseline(assumptions, evidence = {}) {
+  const path = String(evidence.path || "");
+  const configuredEndpoint = endpointBaselines.find((endpoint) => endpoint.path === path);
+  if (!configuredEndpoint) throw new Error("Select a modeled endpoint before updating the baseline.");
+
+  const next = normalizeModelAssumptions(assumptions);
+  const previousEndpoint = { ...next.endpoints[path] };
+  const previousResources = { ...next.resources[path] };
+  const safeRps = Number(evidence.safeRps);
+  if (!Number.isFinite(safeRps) || safeRps <= 0) throw new Error("Validated safe RPS must be greater than zero.");
+
+  next.endpoints[path] = { ...previousEndpoint, safeRps: Math.round(safeRps) };
+  const resourcePatch = {};
+  ["cpu", "memory", "database", "kafka", "redis", "p95Latency"].forEach((key) => {
+    if (evidence[key] === "" || evidence[key] === null || evidence[key] === undefined) return;
+    const value = Number(evidence[key]);
+    const valid = Number.isFinite(value) && value >= 0 && (key === "p95Latency" || value <= 100);
+    if (!valid) throw new Error(`${key === "p95Latency" ? "p95 latency" : key.toUpperCase()} must be a valid non-negative value${key === "p95Latency" ? "" : " from 0 to 100"}.`);
+    resourcePatch[key] = value;
+  });
+  next.resources[path] = { ...previousResources, ...resourcePatch };
+
+  return {
+    assumptions: next,
+    serviceName: configuredEndpoint.service,
+    previous: { endpoint: previousEndpoint, resources: previousResources },
+    applied: { endpoint: next.endpoints[path], resources: next.resources[path] },
+  };
+}
+
 const incrementalSalesVolumeKeys = ["accounts", "equityTrades", "achTransactions", "newPositions", "totalPositions"];
 
 function calculateProjectedTarget(salesForecast, assumptions = defaultModelAssumptions) {
@@ -1546,6 +1576,7 @@ function ClientWorkspace({ view, setView, target, setTarget, executionMode, mode
       Rejected: "Closed — rejected",
       Escalated: "Executive / risk review",
       Assigned: "Engineering validation",
+      "Implemented - Validation Required": "Implementation complete - evidence validation pending",
       Validated: "Ready to close",
       Closed: "Completed",
       Superseded: "Closed — forecast changed",
@@ -1611,6 +1642,61 @@ function ClientWorkspace({ view, setView, target, setTarget, executionMode, mode
     });
     return ticket;
   };
+  const applyRemediationEvidence = (itemId, evidence) => {
+    const item = approvalItems.find((candidate) => candidate.id === itemId);
+    if (!item) throw new Error("The selected recommendation is no longer available.");
+    const change = applyRemediationBaseline(modelAssumptions, evidence);
+    const previousService = services.find((service) => service.name === change.serviceName);
+    const nextProjectedTarget = calculateProjectedTarget(target, change.assumptions);
+    const nextServices = calculateServices(nextProjectedTarget, change.assumptions);
+    const nextReadiness = calculateReadiness(nextServices);
+    const nextService = nextServices.find((service) => service.name === change.serviceName);
+    const nextEndpoint = nextService?.ownedEndpoints.find((endpoint) => endpoint.path === evidence.path);
+    const previousEndpoint = previousService?.ownedEndpoints.find((endpoint) => endpoint.path === evidence.path);
+    const validationConfirmed = ["Targeted performance test passed", "Telemetry observation confirmed"].includes(evidence.validationState);
+    const nextStatus = validationConfirmed ? "Validated" : "Implemented - Validation Required";
+    const oldSafeRps = change.previous.endpoint.safeRps;
+    const newSafeRps = change.applied.endpoint.safeRps;
+    const oldAcrs = previousService?.score;
+    const newAcrs = nextService?.score;
+    const oldCapacity = previousEndpoint ? Math.round(previousEndpoint.projectedRps / Math.max(1, previousEndpoint.safeRps) * 100) : null;
+    const newCapacity = nextEndpoint ? Math.round(nextEndpoint.projectedRps / Math.max(1, nextEndpoint.safeRps) * 100) : null;
+    const note = `${change.serviceName} remediation recorded for ${evidence.path}. Safe RPS ${oldSafeRps} -> ${newSafeRps}; service ACRS ${oldAcrs ?? "N/A"} -> ${newAcrs ?? "N/A"}; capacity position ${oldCapacity ?? "N/A"}% -> ${newCapacity ?? "N/A"}%. ${evidence.validationState}. Evidence: ${evidence.evidenceNote}`;
+
+    setModelAssumptions(change.assumptions);
+    updateApprovalItem(itemId, nextStatus, note, {
+      remediation: {
+        serviceName: change.serviceName,
+        endpoint: evidence.path,
+        previousSafeRps: oldSafeRps,
+        newSafeRps,
+        previousServiceAcrs: oldAcrs,
+        recalculatedServiceAcrs: newAcrs,
+        previousCapacityPct: oldCapacity,
+        recalculatedCapacityPct: newCapacity,
+        capacityRag: nextEndpoint?.capacityStatus || "Not modeled",
+        readinessRag: nextService?.status || "Not modeled",
+        overallAcrs: nextReadiness.score,
+        validationState: evidence.validationState,
+        evidenceNote: evidence.evidenceNote,
+        resourceUpdates: Object.fromEntries(Object.entries(evidence).filter(([key, value]) => ["cpu", "memory", "database", "kafka", "redis", "p95Latency"].includes(key) && value !== "")),
+        appliedAt: new Date().toISOString(),
+      },
+    });
+    return {
+      status: nextStatus,
+      serviceName: change.serviceName,
+      oldSafeRps,
+      newSafeRps,
+      oldAcrs,
+      newAcrs,
+      oldCapacity,
+      newCapacity,
+      capacityRag: nextEndpoint?.capacityStatus || "Not modeled",
+      readinessRag: nextService?.status || "Not modeled",
+      overallAcrs: nextReadiness.score,
+    };
+  };
   useEffect(() => {
     const eod = calculateEodReadiness(projectedTarget, modelAssumptions);
     const tests = recommendedPerformanceTests(projectedTarget, eod, modelAssumptions);
@@ -1662,10 +1748,13 @@ function ClientWorkspace({ view, setView, target, setTarget, executionMode, mode
   if (view === "knowledge") return h(KnowledgeBase);
   if (view === "approval-queue") return h(ApprovalQueue, {
     items: approvalItems,
+    services,
+    modelAssumptions,
     onUpdate: updateApprovalItem,
     onEdit: editApprovalItem,
     onDelete: deleteApprovalItem,
     onCreateJira: createSyntheticJira,
+    onApplyRemediation: applyRemediationEvidence,
   });
   return h(Dashboard, {
     services,
@@ -2381,12 +2470,12 @@ function QueueRecommendationCard({ item, onUpdate, onEdit, onDelete, onCreateJir
   );
 }
 
-function ApprovalQueue({ items, onUpdate, onEdit, onDelete, onCreateJira }) {
+function ApprovalQueue({ items, services, modelAssumptions, onUpdate, onEdit, onDelete, onCreateJira, onApplyRemediation }) {
   const [filter, setFilter] = useState("Active");
   const [scenarioDecisions] = useState(() => {
     try { return JSON.parse(localStorage.getItem("scalix_executive_decision_log_v1") || "[]"); } catch { return []; }
   });
-  const activeStatuses = ["Awaiting Approval", "Approved", "Ticket Created", "Escalated", "Assigned", "Validated"];
+  const activeStatuses = ["Awaiting Approval", "Approved", "Ticket Created", "Escalated", "Assigned", "Implemented - Validation Required", "Validated"];
   const visible = items.filter((item) => {
     if (filter === "All") return true;
     if (filter === "Active") return activeStatuses.includes(item.status);
@@ -2403,19 +2492,19 @@ function ApprovalQueue({ items, onUpdate, onEdit, onDelete, onCreateJira }) {
       h(Kpi, { label: "Awaiting decision", value: count("Awaiting Approval"), detail: "Executive approve, reject, or escalate" }),
       h(Kpi, { label: "Approved", value: count("Approved") + count("Ticket Created"), detail: "Approved work, including newly ticketed items" }),
       h(Kpi, { label: "Escalated", value: count("Escalated"), detail: "Needs evidence or authorized review" }),
-      h(Kpi, { label: "In validation", value: count("Assigned") + count("Validated"), detail: "Assigned or awaiting closure" })
+      h(Kpi, { label: "In validation", value: count("Assigned") + count("Implemented - Validation Required") + count("Validated"), detail: "Implemented work must be evidenced before closure" })
     ),
     h("section", { className: "rx-card rx-workflow-map" },
       h("div", { className: "rx-card-title" }, h("span", null, "Measurable decision path"), h("em", null, "Every transition is timestamped")),
       h("div", { className: "rx-workflow-steps" },
-        ["Proposed", "Awaiting Approval", "Approved / Rejected / Escalated", "Assigned", "Validated", "Closed"].map((step, index) =>
+        ["Proposed", "Awaiting Approval", "Approved / Rejected / Escalated", "Ticket / Assigned", "Implemented / Recalculated", "Validated / Closed"].map((step, index) =>
           h("div", { key: step }, h("b", null, index + 1), h("span", null, step))
         )
       ),
       h("p", null, "Approval authorizes planning and validation only. Scalix never deploys, scales, or changes production.")
     ),
     h("div", { className: "rx-approval-toolbar" },
-      ["Active", "Awaiting Approval", "Approved", "Ticket Created", "Escalated", "Rejected", "Closed", "All"].map((status) =>
+      ["Active", "Awaiting Approval", "Approved", "Ticket Created", "Implemented - Validation Required", "Validated", "Escalated", "Rejected", "Closed", "All"].map((status) =>
         h("button", { key: status, type: "button", className: filter === status ? "active" : "", onClick: () => setFilter(status) }, status)
       ),
       h("span", null, `${visible.length} recommendation${visible.length === 1 ? "" : "s"}`)
@@ -2427,13 +2516,13 @@ function ApprovalQueue({ items, onUpdate, onEdit, onDelete, onCreateJira }) {
           h("p", null, "Update the sales forecast or run an Ask Scalix scenario to create governed recommendations.")
         )
       : h("section", { className: "rx-approval-list" },
-          visible.map((item) => h(ApprovalQueueItem, { key: item.id, item, onUpdate, onEdit, onDelete, onCreateJira }))
+          visible.map((item) => h(ApprovalQueueItem, { key: item.id, item, services, modelAssumptions, onUpdate, onEdit, onDelete, onCreateJira, onApplyRemediation }))
         ),
     h(ExecutiveDecisionLog, { entries: scenarioDecisions, title: "Executive Decision and Queue" })
   );
 }
 
-function ApprovalQueueItem({ item, onUpdate, onEdit, onDelete, onCreateJira }) {
+function ApprovalQueueItem({ item, services, modelAssumptions, onUpdate, onEdit, onDelete, onCreateJira, onApplyRemediation }) {
   const [note, setNote] = useState("");
   const [owner, setOwner] = useState(item.owner || "Unassigned");
   const [validationMethod, setValidationMethod] = useState(item.validationMethod || "Targeted performance test");
@@ -2441,22 +2530,70 @@ function ApprovalQueueItem({ item, onUpdate, onEdit, onDelete, onCreateJira }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.recommendation);
   const [message, setMessage] = useState("");
+  const recommendationText = String(item.recommendation || "").toLowerCase();
+  const inferredService = [
+    [/market-open|buying power|order acceptance|order submission/, "Real-Time Buying Power"],
+    [/event-backbone|kafka|consumer lag|partition/, "Kafka Event Backbone"],
+    [/ledger|position write|posting/, "Ledger + Positions"],
+    [/eod|overnight|settlement|reconciliation/, "Settlement + Overnight Batch"],
+    [/account onboarding|cdd|kyc/, "CDD / KYC Onboarding"],
+    [/cat|finra|regulatory/, "CAT / FINRA Reporting"],
+    [/ach|cash movement|funding/, "ACH / Cash Movement"],
+  ].find(([pattern]) => pattern.test(recommendationText))?.[1];
+  const initialService = inferredService || item.impactedServices?.find((name) => endpointBaselines.some((endpoint) => endpoint.service === name)) || services[0]?.name || endpointBaselines[0].service;
+  const initialEndpoint = endpointBaselines.find((endpoint) => endpoint.service === initialService) || endpointBaselines[0];
+  const [showRemediation, setShowRemediation] = useState(false);
+  const [remediationService, setRemediationService] = useState(initialService);
+  const [remediationPath, setRemediationPath] = useState(initialEndpoint.path);
+  const [safeRps, setSafeRps] = useState(String(modelAssumptions.endpoints[initialEndpoint.path]?.safeRps || initialEndpoint.safeRps));
+  const [resourceEvidence, setResourceEvidence] = useState({ cpu: "", memory: "", database: "", kafka: "", redis: "", p95Latency: "" });
+  const [validationState, setValidationState] = useState("Implementation complete - validation pending");
+  const [evidenceNote, setEvidenceNote] = useState("");
   const acrsAvailable = Number.isFinite(item.baselineAcrs) && Number.isFinite(item.simulatedAcrs);
   const advance = () => {
     if (item.status === "Approved") onUpdate(item.id, "Assigned", note || "Assigned to engineering validation.");
-    else if (item.status === "Ticket Created") onUpdate(item.id, "Assigned", note || "Synthetic Jira work item assigned to engineering validation.");
-    else if (item.status === "Assigned") onUpdate(item.id, "Validated", note || "Validation evidence recorded.");
     else if (item.status === "Validated") onUpdate(item.id, "Closed", note || "Recommendation completed and closed.");
     else if (item.status === "Escalated") onUpdate(item.id, "Awaiting Approval", note || "Returned from escalation with additional review.");
     setNote("");
   };
   const nextLabel = {
     Approved: "Assign to engineering",
-    "Ticket Created": "Assign to engineering",
-    Assigned: "Mark validated",
     Validated: "Close recommendation",
     Escalated: "Return to approval",
   }[item.status];
+  const serviceOptions = [...new Set(endpointBaselines.map((endpoint) => endpoint.service))];
+  const endpointOptions = endpointBaselines.filter((endpoint) => endpoint.service === remediationService);
+  const selectRemediationService = (serviceName) => {
+    const firstEndpoint = endpointBaselines.find((endpoint) => endpoint.service === serviceName);
+    setRemediationService(serviceName);
+    if (firstEndpoint) {
+      setRemediationPath(firstEndpoint.path);
+      setSafeRps(String(modelAssumptions.endpoints[firstEndpoint.path]?.safeRps || firstEndpoint.safeRps));
+    }
+  };
+  const selectRemediationEndpoint = (path) => {
+    const endpoint = endpointBaselines.find((candidate) => candidate.path === path);
+    setRemediationPath(path);
+    setSafeRps(String(modelAssumptions.endpoints[path]?.safeRps || endpoint?.safeRps || ""));
+  };
+  const submitRemediation = (event) => {
+    event.preventDefault();
+    try {
+      if (!evidenceNote.trim()) throw new Error("Add the test result, telemetry source, or implementation evidence before recalculating.");
+      const result = onApplyRemediation(item.id, {
+        path: remediationPath,
+        safeRps,
+        validationState,
+        evidenceNote: evidenceNote.trim(),
+        ...resourceEvidence,
+      });
+      setMessage(`${result.serviceName} recalculated: safe RPS ${result.oldSafeRps} -> ${result.newSafeRps}; capacity ${result.oldCapacity}% -> ${result.newCapacity}% (${result.capacityRag}); ACRS ${result.oldAcrs} -> ${result.newAcrs} (${result.readinessRag}).`);
+      setShowRemediation(false);
+    } catch (error) {
+      setMessage(error.message || "Unable to apply the remediation evidence.");
+    }
+  };
+  const remediationEligible = ["Ticket Created", "Assigned", "Implemented - Validation Required"].includes(item.status);
   return h("article", { className: `rx-card rx-approval-item status-${item.status.toLowerCase().replaceAll(" ", "-")}` },
     h("header", null,
       h("div", null,
@@ -2506,6 +2643,102 @@ function ApprovalQueueItem({ item, onUpdate, onEdit, onDelete, onCreateJira }) {
         }, "Create Jira ticket"),
         item.jiraTicket && h("b", { className: "rx-jira-ticket" }, item.jiraTicket)
       )
+    ),
+    remediationEligible && h("section", { className: "rx-remediation-checkpoint" },
+      h("div", { className: "rx-remediation-heading" },
+        h("div", null,
+          h("span", null, "Remediation checkpoint"),
+          h("strong", null, "Has engineering addressed this item?")
+        ),
+        h("small", null, "A Yes answer updates evidence and recalculates readiness; it never forces Green.")
+      ),
+      !showRemediation
+        ? h("div", { className: "rx-remediation-decision" },
+            h("button", {
+              type: "button",
+              onClick: () => {
+                setShowRemediation(true);
+                if (item.status === "Ticket Created") onUpdate(item.id, "Assigned", `${item.jiraTicket || "Engineering ticket"} implementation review started.`);
+              },
+            }, "Yes - record implementation evidence"),
+            h("button", {
+              type: "button",
+              className: "rx-secondary-action",
+              onClick: () => {
+                onUpdate(item.id, "Assigned", "Engineering remediation is not complete; item remains open.");
+                setMessage("Item remains assigned and open.");
+              },
+            }, "Not yet - keep open")
+          )
+        : h("form", { className: "rx-remediation-form", onSubmit: submitRemediation },
+            h("div", { className: "rx-remediation-grid" },
+              h("label", null, "Service",
+                h("select", { value: remediationService, onChange: (event) => selectRemediationService(event.target.value) },
+                  serviceOptions.map((serviceName) => h("option", { key: serviceName, value: serviceName }, serviceName))
+                )
+              ),
+              h("label", null, "Endpoint",
+                h("select", { value: remediationPath, onChange: (event) => selectRemediationEndpoint(event.target.value) },
+                  endpointOptions.map((endpoint) => h("option", { key: endpoint.path, value: endpoint.path }, endpoint.path))
+                )
+              ),
+              h("label", null, "New validated safe RPS",
+                h("input", { type: "number", min: 1, step: 1, value: safeRps, onChange: (event) => setSafeRps(event.target.value), required: true })
+              ),
+              h("label", null, "Validation state",
+                h("select", { value: validationState, onChange: (event) => setValidationState(event.target.value) },
+                  ["Implementation complete - validation pending", "Targeted performance test passed", "Telemetry observation confirmed"].map((value) => h("option", { key: value, value }, value))
+                )
+              )
+            ),
+            h("details", { className: "rx-remediation-resources" },
+              h("summary", null, "Optional observed resource and latency baseline"),
+              h("div", { className: "rx-remediation-resource-grid" },
+                [
+                  ["cpu", "CPU %"], ["memory", "Memory %"], ["database", "Database %"],
+                  ["kafka", "Kafka %"], ["redis", "Redis %"], ["p95Latency", "p95 latency ms"],
+                ].map(([key, label]) => h("label", { key }, label,
+                  h("input", {
+                    type: "number",
+                    min: 0,
+                    max: key === "p95Latency" ? undefined : 100,
+                    step: "any",
+                    value: resourceEvidence[key],
+                    onChange: (event) => setResourceEvidence((current) => ({ ...current, [key]: event.target.value })),
+                    placeholder: "Optional",
+                  })
+                ))
+              )
+            ),
+            h("label", { className: "rx-remediation-evidence" }, "Evidence and source",
+              h("textarea", {
+                rows: 3,
+                value: evidenceNote,
+                onChange: (event) => setEvidenceNote(event.target.value),
+                placeholder: "Example: PT-204 market-open spike test passed on 2026-08-04; Datadog dashboard link reviewed by Capacity Engineering.",
+                required: true,
+              })
+            ),
+            h("div", { className: "rx-remediation-submit" },
+              h("button", { type: "submit" }, "Update baseline and recalculate"),
+              h("button", { type: "button", className: "rx-secondary-action", onClick: () => setShowRemediation(false) }, "Cancel")
+            ),
+            h("p", { className: "rx-remediation-guardrail" }, "Scalix will recalculate endpoint Capacity RAG, service ACRS, dependent services, and overall ACRS from the updated evidence. The resulting color is not manually assigned.")
+          )
+    ),
+    item.remediation && h("section", { className: "rx-remediation-result" },
+      h("div", null,
+        h("span", null, "Applied baseline change"),
+        h("strong", null, `${item.remediation.serviceName} - ${item.remediation.endpoint}`)
+      ),
+      h("dl", null,
+        h("div", null, h("dt", null, "Safe RPS"), h("dd", null, `${item.remediation.previousSafeRps} -> ${item.remediation.newSafeRps}`)),
+        h("div", null, h("dt", null, "Capacity"), h("dd", null, `${item.remediation.previousCapacityPct}% -> ${item.remediation.recalculatedCapacityPct}%`), h(StatusChip, { status: item.remediation.capacityRag })),
+        h("div", null, h("dt", null, "Service ACRS"), h("dd", null, `${item.remediation.previousServiceAcrs} -> ${item.remediation.recalculatedServiceAcrs}`), h(StatusChip, { status: item.remediation.readinessRag })),
+        h("div", null, h("dt", null, "Overall ACRS"), h("dd", null, item.remediation.overallAcrs))
+      ),
+      h("p", null, item.remediation.validationState),
+      h("small", null, item.remediation.evidenceNote)
     ),
     h("details", { className: "rx-pilot-feedback" },
       h("summary", null, "Pilot feedback and ownership"),

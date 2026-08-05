@@ -3434,7 +3434,7 @@ tbody tr:hover {
 }
 .rx-approval-scoreboard {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 10px;
 }
 .rx-workflow-map {
@@ -3511,6 +3511,9 @@ tbody tr:hover {
 }
 .rx-approval-item.status-assigned {
   border-left-color: #2e90fa;
+}
+.rx-approval-item[class*="status-implemented"] {
+  border-left-color: #f79009;
 }
 .rx-approval-item > header {
   display: flex;
@@ -3617,6 +3620,150 @@ tbody tr:hover {
   color: #ffffff;
   border-color: #155eef;
   background: #155eef;
+}
+.rx-remediation-checkpoint,
+.rx-remediation-result {
+  margin-top: 12px;
+  padding: 13px;
+  border: 1px solid #cfe0ff;
+  border-radius: 9px;
+  background: #f7faff;
+}
+.rx-remediation-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.rx-remediation-heading > div {
+  display: grid;
+  gap: 2px;
+}
+.rx-remediation-heading span,
+.rx-remediation-result span {
+  color: #155eef;
+  font-size: 9.5px;
+  font-weight: 850;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.rx-remediation-heading strong,
+.rx-remediation-result strong {
+  color: #101828;
+  font-size: 12px;
+}
+.rx-remediation-heading small {
+  max-width: 390px;
+  color: #475467;
+  font-size: 10px;
+  line-height: 1.4;
+  text-align: right;
+}
+.rx-remediation-decision,
+.rx-remediation-submit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+.rx-remediation-checkpoint button {
+  color: #ffffff;
+  border-color: #2e90fa;
+  background: #2e90fa;
+}
+.rx-remediation-checkpoint button.rx-secondary-action {
+  color: #155eef;
+  background: #ffffff;
+}
+.rx-remediation-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #d8e4f8;
+}
+.rx-remediation-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 8px;
+}
+.rx-remediation-form label {
+  display: grid;
+  gap: 4px;
+  color: #344054;
+  font-size: 10px;
+  font-weight: 750;
+}
+.rx-remediation-form input,
+.rx-remediation-form select,
+.rx-remediation-form textarea {
+  width: 100%;
+  padding: 8px 9px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  color: #101828;
+  background: #ffffff;
+  font: inherit;
+  font-weight: 600;
+}
+.rx-remediation-resources {
+  color: #475467;
+  font-size: 10px;
+}
+.rx-remediation-resources summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+.rx-remediation-resource-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(90px, 1fr));
+  gap: 7px;
+  margin-top: 8px;
+}
+.rx-remediation-guardrail {
+  margin: 0;
+  color: #475467;
+  font-size: 10px;
+  line-height: 1.45;
+}
+.rx-remediation-result {
+  border-color: #b7e4ce;
+  background: #f4fbf7;
+}
+.rx-remediation-result > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+.rx-remediation-result dl {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 7px;
+  margin: 10px 0 0;
+}
+.rx-remediation-result dl > div {
+  padding: 8px;
+  border-radius: 7px;
+  background: #ffffff;
+}
+.rx-remediation-result dt {
+  color: #667085;
+  font-size: 9.5px;
+}
+.rx-remediation-result dd {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 3px 0 0;
+  color: #101828;
+  font-size: 11px;
+  font-weight: 800;
+}
+.rx-remediation-result p,
+.rx-remediation-result small {
+  display: block;
+  margin: 8px 0 0;
+  color: #475467;
+  font-size: 10px;
 }
 .rx-approval-history {
   margin-top: 10px;
@@ -5037,5 +5184,17 @@ td small { display: block; color: var(--muted); margin-top: 4px; }
   }
   .rx-comparison-title {
     grid-column: auto;
+  }
+  .rx-approval-scoreboard,
+  .rx-remediation-grid,
+  .rx-remediation-resource-grid,
+  .rx-remediation-result dl {
+    grid-template-columns: 1fr;
+  }
+  .rx-remediation-heading {
+    display: grid;
+  }
+  .rx-remediation-heading small {
+    text-align: left;
   }
 }
