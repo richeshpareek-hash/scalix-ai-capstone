@@ -545,7 +545,9 @@ function calculateEodReadiness(target, assumptions = defaultModelAssumptions) {
   const availableMinutes = assumptions.eod.availableMinutes;
   const baselineRequiredMinutes = assumptions.eod.baselineRequiredMinutes;
   const requiredMinutes = Math.round(baselineRequiredMinutes * loadRatio);
-  const headroom = clamp(1 - requiredMinutes / availableMinutes);
+  // Preserve negative headroom so an SLO breach remains measurable instead of
+  // collapsing every overrun to the same 0% value. Readiness is still bounded.
+  const headroom = 1 - requiredMinutes / availableMinutes;
   const readiness = Math.round(clamp(headroom / 0.50) * 100);
   return {
     workloadUnits: Math.round(workloadUnits),
@@ -988,6 +990,136 @@ async function requestScenarioAnalysis(payload) {
   });
   if (!response.ok) throw new Error("The analysis service did not return a valid result.");
   return response.json();
+}
+
+function buildBaselineReviewPackage({ services, readiness, target, tests, previousSnapshot, executionMode }) {
+  const capacityPosition = calculateCapacityPosition(services);
+  const constrainedServices = services.filter((service) => service.status !== "Green");
+  const lowConfidenceServices = services.filter((service) => Number(service.factors?.evidenceConfidence) < 0.75);
+  const weakest = [...services].sort((a, b) => a.score - b.score)[0];
+  const scoreChange = previousSnapshot && Number.isFinite(Number(previousSnapshot.score))
+    ? Math.abs(readiness.score - Number(previousSnapshot.score))
+    : 0;
+  const statusChanged = Boolean(previousSnapshot?.status && previousSnapshot.status !== readiness.status);
+  const triggerReasons = [
+    constrainedServices.length ? `${constrainedServices.length} service${constrainedServices.length === 1 ? " is" : "s are"} Amber or Red` : "",
+    lowConfidenceServices.length ? `${lowConfidenceServices.length} service${lowConfidenceServices.length === 1 ? " has" : "s have"} modeled or incomplete evidence` : "",
+    scoreChange >= 5 ? `overall ACRS changed by ${scoreChange} points` : "",
+    statusChanged ? `overall RAG changed from ${previousSnapshot.status} to ${readiness.status}` : "",
+  ].filter(Boolean);
+  const reviewRequired = triggerReasons.length > 0;
+  const missingData = lowConfidenceServices.length
+    ? ["Modeled service and endpoint headroom must be calibrated with current production telemetry before final capacity sign-off."]
+    : [];
+  return {
+    review_mode: "BASELINE_DETERMINISTIC",
+    executionMode,
+    review_required: reviewRequired,
+    trigger_reasons: triggerReasons,
+    deterministic_assessment: {
+      readiness,
+      capacity_position: capacityPosition,
+      target,
+      services: services.map((service) => ({
+        name: service.name,
+        score: service.score,
+        status: service.status,
+        limiter: service.limiter,
+        limiterStatus: service.limiterStatus,
+        evidenceConfidence: service.factors?.evidenceConfidence,
+      })),
+    },
+    candidate_output: {
+      executive_summary: constrainedServices.length
+        ? `The deterministic six-month baseline identifies ${constrainedServices.length} services requiring action or validation.`
+        : "The deterministic six-month baseline is Green and does not require a new executive action.",
+      primary_bottleneck: weakest ? `${weakest.name}: ${weakest.limiter}` : "No constrained service identified.",
+      recommendations: reviewRequired ? tests.map((test) => `${test.name}: ${test.target}. Pass criteria: ${test.pass}`) : [],
+      missing_data: missingData,
+      modeled_evidence_disclosed: lowConfidenceServices.length > 0,
+      human_approval_required: true,
+      production_action_executed: false,
+    },
+    previous_snapshot: previousSnapshot || null,
+  };
+}
+
+async function requestBaselineReview(reviewPackage) {
+  const core = window.SCALIX_AGENT_CORE;
+  if (!core) throw new Error("The Scalix baseline review policy could not be loaded.");
+  if (!reviewPackage.review_required) {
+    return {
+      reviewRequired: false,
+      reviewer: {
+        verdict: "NOT_REQUIRED",
+        reason: "The baseline remains Green, stable, and sufficiently evidenced; deterministic validation passed without an agent call.",
+        checks: {
+          evidence: "No material evidence exception triggered review.",
+          acrs: "Score and RAG validation passed.",
+          uncertainty: "No material uncertainty trigger was detected.",
+          safety: "No production action was proposed or executed.",
+        },
+      },
+      reviewerSource: "Application validation",
+      mode: "not_required",
+      guardrail: "Healthy unchanged baseline; Independent Review Agent invocation skipped by policy.",
+      completedAt: new Date().toISOString(),
+    };
+  }
+
+  const policyReviewer = core.baselinePolicyReview(reviewPackage);
+  if (reviewPackage.executionMode !== "live_openai") {
+    return {
+      reviewRequired: true,
+      reviewer: policyReviewer,
+      reviewerSource: "Deterministic policy reviewer",
+      mode: "deterministic_policy",
+      guardrail: "Independent baseline review completed without an external model call.",
+      completedAt: new Date().toISOString(),
+    };
+  }
+
+  if (!publicHostedDemo) {
+    const response = await fetch("/api/baseline-review", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(reviewPackage),
+    });
+    if (!response.ok) throw new Error("The baseline review service did not return a valid result.");
+    return response.json();
+  }
+
+  try {
+    const candidate = await callBrowserOpenAI(core.BASELINE_REVIEWER_PROMPT, reviewPackage, { verbosity: "low", maxOutputTokens: 1000 });
+    if (!core.validateReviewerOutput(candidate)) throw new Error("The live baseline reviewer returned an invalid format.");
+    if (policyReviewer.verdict === "NEEDS_ATTENTION" && candidate.verdict !== "NEEDS_ATTENTION") {
+      return {
+        reviewRequired: true,
+        reviewer: policyReviewer,
+        reviewerSource: "Deterministic policy reviewer — material consistency safeguard",
+        mode: "deterministic_policy",
+        guardrail: "The live reviewer missed a deterministic consistency issue; the policy verdict was preserved.",
+        completedAt: new Date().toISOString(),
+      };
+    }
+    return {
+      reviewRequired: true,
+      reviewer: candidate,
+      reviewerSource: publicOpenAIModel,
+      mode: "real_llm",
+      guardrail: "The Independent Review Agent reviewed the deterministic baseline package; no score was model-generated.",
+      completedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    return {
+      reviewRequired: true,
+      reviewer: policyReviewer,
+      reviewerSource: "Deterministic policy reviewer — live fallback",
+      mode: "deterministic_policy",
+      guardrail: `${error.message} Deterministic policy review was applied.`,
+      completedAt: new Date().toISOString(),
+    };
+  }
 }
 
 function extractOpenAIResponseText(data) {
@@ -1485,6 +1617,8 @@ function ClientLogoMark() {
 
 function ClientWorkspace({ view, setView, target, setTarget, executionMode, modelAssumptions, setModelAssumptions }) {
   const approvalStorageKey = "scalix_approval_queue_v1";
+  const baselineReviewStorageKey = "scalix_baseline_review_v1";
+  const baselineSnapshotStorageKey = "scalix_baseline_review_snapshot_v1";
   const [approvalItems, setApprovalItems] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(approvalStorageKey) || "[]");
@@ -1499,6 +1633,9 @@ function ClientWorkspace({ view, setView, target, setTarget, executionMode, mode
       localStorage.setItem(approvalStorageKey, JSON.stringify(migrated));
       return migrated;
     } catch { return []; }
+  });
+  const [baselineReview, setBaselineReview] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(baselineReviewStorageKey) || "null"); } catch { return null; }
   });
   const projectedTarget = useMemo(() => calculateProjectedTarget(target, modelAssumptions), [target, modelAssumptions]);
   const services = useMemo(() => calculateServices(projectedTarget, modelAssumptions), [projectedTarget, modelAssumptions]);
@@ -1523,6 +1660,8 @@ function ClientWorkspace({ view, setView, target, setTarget, executionMode, mode
     scenarioReadiness,
     scenarioServices = [],
     reviewer = "",
+    reviewerReason = "",
+    reviewerSource = "",
     agentDecision = "",
   }) => {
     const now = new Date().toISOString();
@@ -1540,6 +1679,8 @@ function ClientWorkspace({ view, setView, target, setTarget, executionMode, mode
       simulatedAcrs: scenarioReadiness?.score,
       impactedServices: scenarioServices.filter((service) => service.status !== "Green").slice(0, 4).map((service) => service.name),
       reviewer,
+      reviewerReason,
+      reviewerSource,
       agentDecision,
       createdAt: now,
       updatedAt: now,
@@ -1698,6 +1839,7 @@ function ClientWorkspace({ view, setView, target, setTarget, executionMode, mode
     };
   };
   useEffect(() => {
+    let cancelled = false;
     const eod = calculateEodReadiness(projectedTarget, modelAssumptions);
     const tests = recommendedPerformanceTests(projectedTarget, eod, modelAssumptions);
     const signature = [
@@ -1709,19 +1851,86 @@ function ClientWorkspace({ view, setView, target, setTarget, executionMode, mode
       projectedTarget.peakMultiplier,
       [...modelSignature].reduce((hash, char) => ((hash * 31) + char.charCodeAt(0)) >>> 0, 0),
     ].join("-");
-    const runId = `BASELINE-${signature}`;
+    const runId = `BASELINE-REVIEW-v2-${executionMode}-${signature}`;
     if (approvalItems.some((item) => item.runId === runId)) return;
-    registerRecommendations({
-      runId,
-      source: "Sales Forecast Baseline",
-      caseId: "BASELINE",
-      question: `Six-month sales forecast: ${money.format(projectedTarget.equityTrades)} projected equity trades/day.`,
-      recommendations: tests.map((test) => `${test.name}: ${test.target}. Pass criteria: ${test.pass}`),
-      baselineReadiness: readiness,
-      scenarioReadiness: readiness,
-      scenarioServices: services,
-      reviewer: "Deterministic capacity model",
+    let previousSnapshot = null;
+    try { previousSnapshot = JSON.parse(localStorage.getItem(baselineSnapshotStorageKey) || "null"); } catch { previousSnapshot = null; }
+    const reviewPackage = buildBaselineReviewPackage({
+      services,
+      readiness,
+      target: projectedTarget,
+      tests,
+      previousSnapshot,
+      executionMode,
     });
+    requestBaselineReview(reviewPackage)
+      .then((reviewResult) => {
+        if (cancelled) return;
+        const record = {
+          ...reviewResult,
+          runId,
+          triggerReasons: reviewPackage.trigger_reasons,
+          score: readiness.score,
+          status: readiness.status,
+        };
+        setBaselineReview(record);
+        localStorage.setItem(baselineReviewStorageKey, JSON.stringify(record));
+        localStorage.setItem(baselineSnapshotStorageKey, JSON.stringify({
+          score: readiness.score,
+          status: readiness.status,
+          constrainedServices: services.filter((service) => service.status !== "Green").map((service) => service.name),
+          completedAt: reviewResult.completedAt,
+        }));
+        registerRecommendations({
+          runId,
+          source: "Sales Forecast Baseline",
+          caseId: "BASELINE",
+          question: `Six-month sales forecast: ${money.format(projectedTarget.equityTrades)} projected equity trades/day.`,
+          recommendations: reviewPackage.review_required ? reviewPackage.candidate_output.recommendations : [],
+          baselineReadiness: readiness,
+          scenarioReadiness: readiness,
+          scenarioServices: services,
+          reviewer: reviewResult.reviewer.verdict,
+          reviewerReason: reviewResult.reviewer.reason,
+          reviewerSource: reviewResult.reviewerSource,
+          agentDecision: reviewResult.reviewer.verdict === "NEEDS_ATTENTION" ? "ESCALATE" : "RECOMMEND_WITH_APPROVAL",
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        const record = {
+          reviewRequired: reviewPackage.review_required,
+          reviewer: {
+            verdict: "NEEDS_ATTENTION",
+            reason: "The baseline review could not complete; recommendations must be escalated before approval.",
+          },
+          reviewerSource: "Application failure safeguard",
+          mode: "review_failed",
+          guardrail: error.message || "Baseline review failed.",
+          completedAt: new Date().toISOString(),
+          runId,
+          triggerReasons: reviewPackage.trigger_reasons,
+          score: readiness.score,
+          status: readiness.status,
+        };
+        setBaselineReview(record);
+        localStorage.setItem(baselineReviewStorageKey, JSON.stringify(record));
+        registerRecommendations({
+          runId,
+          source: "Sales Forecast Baseline",
+          caseId: "BASELINE",
+          question: `Six-month sales forecast: ${money.format(projectedTarget.equityTrades)} projected equity trades/day.`,
+          recommendations: reviewPackage.candidate_output.recommendations,
+          baselineReadiness: readiness,
+          scenarioReadiness: readiness,
+          scenarioServices: services,
+          reviewer: "NEEDS_ATTENTION",
+          reviewerReason: record.reviewer.reason,
+          reviewerSource: record.reviewerSource,
+          agentDecision: "ESCALATE",
+        });
+      });
+    return () => { cancelled = true; };
   }, [
     projectedTarget.accounts,
     projectedTarget.equityTrades,
@@ -1730,6 +1939,7 @@ function ClientWorkspace({ view, setView, target, setTarget, executionMode, mode
     projectedTarget.totalPositions,
     projectedTarget.peakMultiplier,
     modelSignature,
+    executionMode,
   ]);
   if (view === "agent-console") return h(AgentConsole, {
     target: projectedTarget,
@@ -1769,6 +1979,7 @@ function ClientWorkspace({ view, setView, target, setTarget, executionMode, mode
     editApprovalItem,
     deleteApprovalItem,
     createSyntheticJira,
+    baselineReview,
     onNavigate: setView,
   });
 }
@@ -2017,6 +2228,7 @@ function Dashboard({
   editApprovalItem,
   deleteApprovalItem,
   createSyntheticJira,
+  baselineReview,
   onNavigate,
 }) {
   const decisionLogKey = "scalix_executive_decision_log_v1";
@@ -2036,6 +2248,20 @@ function Dashboard({
   const executiveEod = calculateEodReadiness(executiveTarget, modelAssumptions);
   const baselineCapacityPosition = calculateCapacityPosition(services);
   const executiveCapacityPosition = calculateCapacityPosition(executiveServices);
+  const ragLevels = ["Green", "Amber", "Red"];
+  const acrsRagCounts = Object.fromEntries(ragLevels.map((status) => [
+    status,
+    services.filter((service) => service.status === status).length,
+  ]));
+  const capacityRagCounts = Object.fromEntries(ragLevels.map((status) => [
+    status,
+    services.filter((service) => {
+      const endpoint = selectWeakestEndpoint(service.ownedEndpoints);
+      if (!endpoint) return false;
+      const utilizationPct = Math.round(endpoint.projectedRps / Math.max(1, endpoint.safeRps) * 100);
+      return capacityStatusFor(utilizationPct) === status;
+    }).length,
+  ]));
   const executivePerformanceTests = recommendedPerformanceTests(executiveTarget, executiveEod, modelAssumptions);
   const riskConcentrations = buildRiskConcentrations(executiveServices);
   const scenarioRecommendationItems = answer
@@ -2156,7 +2382,13 @@ function Dashboard({
       h(CapacityPositionCard, { position: executiveCapacityPosition, scenarioActive: Boolean(answer) }),
       h(Kpi, { label: "Services needing attention", value: `${executiveServices.filter((service) => service.status !== "Green").length} / ${executiveServices.length}`, detail: answer ? "Ask Scalix scenario · Red or Amber" : "Baseline · Red or Amber" }),
       h(Kpi, { label: answer ? "Scenario Trades/Day" : "Forecast Trades/Day", value: money.format(executiveTarget.equityTrades), detail: `${executiveTarget.peakMultiplier}x market-open peak` }),
-      h(Kpi, { label: "EOD SLO Headroom", value: `${Math.round(executiveEod.headroom * 100)}%`, detail: `${executiveEod.requiredMinutes} of ${executiveEod.availableMinutes} min window` })
+      h(Kpi, {
+        label: "EOD SLO Position",
+        value: `${Math.round(executiveEod.headroom * 100)}%`,
+        detail: executiveEod.requiredMinutes > executiveEod.availableMinutes
+          ? `${executiveEod.requiredMinutes} of ${executiveEod.availableMinutes} min · ${executiveEod.requiredMinutes - executiveEod.availableMinutes} min over SLO`
+          : `${executiveEod.requiredMinutes} of ${executiveEod.availableMinutes} min · ${executiveEod.availableMinutes - executiveEod.requiredMinutes} min remaining`,
+      })
     ),
     answer && h("section", { className: "rx-baseline-scenario-comparison", "aria-label": "Baseline versus Ask Scalix comparison" },
       h("div", { className: "rx-comparison-title" },
@@ -2164,7 +2396,7 @@ function Dashboard({
         h("strong", null, compactExecutiveText(answer.question, 110))
       ),
       h(ComparisonMetric, {
-        label: "Overall capacity position",
+        label: "Six-month sales baseline → Ask Scalix",
         baseline: baselineCapacityPosition.forecast.utilizationPct,
         scenario: executiveCapacityPosition.forecast.utilizationPct,
         suffix: "%",
@@ -2176,7 +2408,7 @@ function Dashboard({
         suffix: `/${services.length}`,
       }),
       h(ComparisonMetric, { label: "Equity trades/day", baseline: money.format(target.equityTrades), scenario: money.format(executiveTarget.equityTrades) }),
-      h(ComparisonMetric, { label: "EOD headroom", baseline: Math.round(eod.headroom * 100), scenario: Math.round(executiveEod.headroom * 100), suffix: "%" })
+      h(ComparisonMetric, { label: "EOD SLO position", baseline: Math.round(eod.headroom * 100), scenario: Math.round(executiveEod.headroom * 100), suffix: "%" })
     ),
     h("section", { className: "rx-executive-summary-section", "aria-label": "Executive summary" },
       h("div", { className: "rx-section-heading" },
@@ -2187,6 +2419,30 @@ function Dashboard({
         h("p", null, answer
           ? `Baseline capacity position ${baselineCapacityPosition.forecast.utilizationPct}% (${baselineCapacityPosition.forecast.status}) versus Ask Scalix ${executiveCapacityPosition.forecast.utilizationPct}% (${executiveCapacityPosition.forecast.status}).`
           : "Current six-month posture based on the saved sales forecast, architecture assumptions, and available evidence.")
+      ),
+      !answer && h("article", { className: "rx-baseline-rag-summary", "aria-label": "Baseline service RAG summary" },
+        h("div", { className: "rx-baseline-rag-heading" },
+          h("span", null, "Baseline service RAG summary"),
+          h("small", null, `${services.length} modeled services · detailed Independent Review remains in Task Queue`)
+        ),
+        h("div", { className: "rx-baseline-rag-row" },
+          h("strong", null, "Capacity RAG"),
+          h("div", { className: "rx-baseline-rag-counts" },
+            ragLevels.map((status) => h("span", { key: `capacity-${status}`, className: `rx-baseline-rag-count ${status.toLowerCase()}` },
+              h("b", null, capacityRagCounts[status]),
+              status
+            ))
+          )
+        ),
+        h("div", { className: "rx-baseline-rag-row" },
+          h("strong", null, "ACRS Readiness RAG"),
+          h("div", { className: "rx-baseline-rag-counts" },
+            ragLevels.map((status) => h("span", { key: `acrs-${status}`, className: `rx-baseline-rag-count ${status.toLowerCase()}` },
+              h("b", null, acrsRagCounts[status]),
+              status
+            ))
+          )
+        )
       ),
       h("div", { className: "rx-executive-decision-grid" },
       h("article", { className: "rx-card rx-executive-panel rx-executive-summary" },
@@ -2615,6 +2871,11 @@ function ApprovalQueueItem({ item, services, modelAssumptions, onUpdate, onEdit,
       h("div", null, h("span", null, "ACRS impact"), h("strong", null, acrsAvailable ? `${item.baselineAcrs} → ${item.simulatedAcrs}` : "Evidence required")),
       h("div", null, h("span", null, "Reviewer"), h("strong", null, String(item.reviewer || "Not available").replaceAll("_", " ")))
     ),
+    item.reviewerReason && h("p", { className: `rx-queue-review-note ${item.reviewer === "NEEDS_ATTENTION" ? "needs-attention" : ""}` },
+      h("strong", null, "Independent review: "),
+      item.reviewerReason,
+      item.reviewerSource && h("small", null, ` ${item.reviewerSource}`)
+    ),
     item.question && h("p", { className: "rx-approval-question" }, h("strong", null, "Trigger: "), item.question),
     item.impactedServices?.length > 0 && h("div", { className: "rx-approval-services" },
       h("span", null, "Impacted services"),
@@ -2817,7 +3078,7 @@ function CapacityPositionCard({ position, scenarioActive = false }) {
       h("i", { "aria-hidden": "true" }, "→"),
       h("b", { className: position.forecast.utilizationPct >= 100 ? "over" : "forecast" }, `${position.forecast.utilizationPct}%`)
     ),
-    h("p", null, `Current → ${scenarioActive ? "scenario" : "six-month forecast"} · weighted across ${position.serviceCount} services`),
+    h("p", null, `${scenarioActive ? "Current production → Ask Scalix" : "Current production → six-month sales forecast"} · weighted across ${position.serviceCount} services`),
     h("small", null, `Limiter: ${position.limiting.service} ${position.limiting.currentPct}% → ${position.limiting.forecastPct}%`)
   );
 }

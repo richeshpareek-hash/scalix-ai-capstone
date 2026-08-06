@@ -6,11 +6,14 @@ const {
   EVAL_CASES,
   ANALYST_PROMPT,
   REVIEWER_PROMPT,
+  BASELINE_REVIEWER_PROMPT,
   buildAnalysisPayload,
   fallbackWorker,
   applyEvaluationFault,
   validateWorker,
   fallbackReviewer,
+  validateReviewerOutput,
+  baselinePolicyReview,
 } = require('./agent-core.js');
 
 const baseDir = __dirname;
@@ -195,6 +198,45 @@ async function runValidatedScenario(payload) {
     },
   };
 }
+
+async function runBaselineReview(payload) {
+  const policyReviewer = baselinePolicyReview(payload);
+  const liveRequested = payload.executionMode === 'live_openai';
+  const useLiveOpenAI = liveRequested && Boolean(runtimeApiKey);
+  let reviewer = policyReviewer;
+  let reviewerSource = 'Deterministic policy reviewer';
+  let modelIssue = liveRequested && !runtimeApiKey
+    ? 'Live OpenAI review was requested, but no server-side API key is available; deterministic policy review was applied.'
+    : '';
+
+  if (useLiveOpenAI) {
+    try {
+      const candidate = await callPrompt(BASELINE_REVIEWER_PROMPT, payload, { verbosity: 'low', maxOutputTokens: 1000 });
+      if (validateReviewerOutput(candidate)) {
+        if (policyReviewer.verdict === 'NEEDS_ATTENTION' && candidate.verdict !== 'NEEDS_ATTENTION') {
+          reviewer = policyReviewer;
+          reviewerSource = 'Deterministic policy reviewer — material consistency safeguard';
+        } else {
+          reviewer = candidate;
+          reviewerSource = model;
+        }
+      } else {
+        modelIssue = 'The live baseline reviewer returned an invalid format; deterministic policy review was applied.';
+      }
+    } catch (error) {
+      modelIssue = `Live baseline review failed because ${safeOpenAIError(error)}; deterministic policy review was applied.`;
+    }
+  }
+
+  return {
+    reviewRequired: true,
+    reviewer,
+    reviewerSource,
+    mode: useLiveOpenAI && reviewerSource === model ? 'real_llm' : 'deterministic_policy',
+    guardrail: modelIssue || 'Baseline evidence, score consistency, uncertainty, and approval boundaries were reviewed.',
+    completedAt: new Date().toISOString(),
+  };
+}
 async function runRealAgents(payload) {
   const agentKeys = ['forecast','capacity','dependency','reliability','telemetry','recommendations'];
   const specialistOutputs = [];
@@ -272,6 +314,21 @@ const server = http.createServer(async (req, res) => {
         } catch (error) {
           res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
           res.end(JSON.stringify({ error: 'Scenario analysis could not be completed.', detail: error.message }));
+        }
+      });
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/api/baseline-review') {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', async () => {
+        try {
+          const result = await runBaselineReview(JSON.parse(body || '{}'));
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify(result));
+        } catch (error) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'Baseline review could not be completed.', detail: error.message }));
         }
       });
       return;

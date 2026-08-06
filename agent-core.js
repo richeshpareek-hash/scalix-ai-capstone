@@ -225,6 +225,80 @@ Do not add new facts or redo the analysis. Do not rubber-stamp.
 Return compact valid JSON only:
 {"verdict":"LOOKS_RIGHT or NEEDS_ATTENTION","reason":"one sentence","checks":{"evidence":"...","acrs":"...","uncertainty":"...","safety":"..."}}`;
 
+const BASELINE_REVIEWER_PROMPT = `You are the independent Scalix Review Agent. Review a deterministic baseline capacity-readiness package before any recommendation enters the Executive Decision Queue.
+
+This path has no Analyst Agent. The deterministic score, RAG, Capacity Position, endpoint calculations, and service facts are authoritative inputs; do not recalculate, replace, or invent them.
+
+Check:
+1. Overall and service RAG labels agree with the supplied deterministic scores.
+2. The named primary limiter matches the supplied lowest-readiness service and evidence.
+3. Recommendations address the supplied constrained services and remain proposals requiring Executive approval.
+4. Modeled assumptions, missing telemetry, and low evidence confidence are disclosed.
+5. No production action is claimed, implied, or automatically approved.
+6. Use NEEDS_ATTENTION only for a material inconsistency, unsupported limiter, missing decision-driving disclosure, or unsafe action.
+
+Do not add new facts or redo the capacity analysis. Return compact valid JSON only:
+{"verdict":"LOOKS_RIGHT or NEEDS_ATTENTION","reason":"one sentence","checks":{"evidence":"...","acrs":"...","uncertainty":"...","safety":"..."}}`;
+
+function validateReviewerOutput(review) {
+  return Boolean(
+    review &&
+    ['LOOKS_RIGHT', 'NEEDS_ATTENTION'].includes(review.verdict) &&
+    typeof review.reason === 'string' && review.reason.trim() &&
+    review.checks &&
+    ['evidence', 'acrs', 'uncertainty', 'safety'].every((key) => typeof review.checks[key] === 'string' && review.checks[key].trim())
+  );
+}
+
+function baselinePolicyReview(reviewPackage = {}) {
+  const assessment = reviewPackage.deterministic_assessment || {};
+  const readiness = assessment.readiness || {};
+  const services = Array.isArray(assessment.services) ? assessment.services : [];
+  const candidate = reviewPackage.candidate_output || {};
+  const issues = [];
+  if (!Number.isFinite(Number(readiness.score)) || !readiness.status) {
+    issues.push('overall deterministic readiness is incomplete');
+  } else if (statusFor(Number(readiness.score)) !== readiness.status) {
+    issues.push(`overall ACRS ${readiness.score} does not match ${readiness.status}`);
+  }
+  const inconsistentServices = services.filter((service) =>
+    Number.isFinite(Number(service.score)) && service.status && statusFor(Number(service.score)) !== service.status
+  );
+  if (inconsistentServices.length) issues.push(`service RAG conflicts: ${inconsistentServices.map((service) => service.name).join(', ')}`);
+  const weakest = [...services].filter((service) => Number.isFinite(Number(service.score))).sort((a, b) => Number(a.score) - Number(b.score))[0];
+  if (weakest && candidate.primary_bottleneck && !String(candidate.primary_bottleneck).includes(weakest.name)) {
+    issues.push(`primary limiter does not match lowest-readiness service ${weakest.name}`);
+  }
+  const nonGreen = services.filter((service) => service.status !== 'Green');
+  if (nonGreen.length && !(candidate.recommendations || []).length) issues.push('constrained services have no reviewable recommendation');
+  if (candidate.human_approval_required !== true) issues.push('Executive approval boundary is missing');
+  if (candidate.production_action_executed === true) issues.push('a production action was represented as executed');
+  const lowConfidence = services.filter((service) => Number(service.evidenceConfidence) < 0.75);
+  if (lowConfidence.length && !(candidate.missing_data || []).length) issues.push('low evidence confidence is not disclosed');
+
+  const verdict = issues.length ? 'NEEDS_ATTENTION' : 'LOOKS_RIGHT';
+  return {
+    verdict,
+    reason: issues.length
+      ? `Baseline review found a material issue: ${issues.join('; ')}.`
+      : `The deterministic baseline is internally consistent; ${nonGreen.length} constrained service${nonGreen.length === 1 ? '' : 's'} and the proposed validation actions remain evidence-labeled and Executive-controlled.`,
+    checks: {
+      evidence: issues.some((issue) => /limiter|evidence|telemetry|disclosed/.test(issue))
+        ? 'Decision-driving evidence or disclosure requires correction.'
+        : 'The primary limiter and recommendations are tied to the supplied deterministic service evidence.',
+      acrs: issues.some((issue) => /ACRS|RAG/.test(issue))
+        ? 'A score-to-status inconsistency requires correction.'
+        : `Deterministic ACRS ${readiness.score ?? 'not available'} (${readiness.status || 'not available'}) remains the source of truth.`,
+      uncertainty: lowConfidence.length
+        ? `${lowConfidence.length} service${lowConfidence.length === 1 ? '' : 's'} use modeled or incomplete evidence and require validation.`
+        : 'No material evidence-confidence exception was supplied.',
+      safety: candidate.production_action_executed === true || candidate.human_approval_required !== true
+        ? 'The human approval boundary did not hold.'
+        : 'No production action was executed; Executive approval remains required.',
+    },
+  };
+}
+
 function clamp(value, minimum = 0, maximum = 1) {
   return Math.min(maximum, Math.max(minimum, Number(value)));
 }
@@ -712,6 +786,7 @@ const SCALIX_AGENT_CORE = {
   VALID_EVIDENCE_IDS,
   ANALYST_PROMPT,
   REVIEWER_PROMPT,
+  BASELINE_REVIEWER_PROMPT,
   clamp,
   statusFor,
   weightedAcrs,
@@ -721,6 +796,8 @@ const SCALIX_AGENT_CORE = {
   applyEvaluationFault,
   validateWorker,
   fallbackReviewer,
+  validateReviewerOutput,
+  baselinePolicyReview,
 };
 
 if (typeof module !== 'undefined') module.exports = SCALIX_AGENT_CORE;

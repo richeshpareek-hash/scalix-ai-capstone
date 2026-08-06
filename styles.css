@@ -3568,6 +3568,25 @@ tbody tr:hover {
   margin-top: 2px;
   color: #344054;
 }
+.rx-queue-review-note {
+  margin: 10px 0 0;
+  padding: 9px 11px;
+  border-left: 3px solid #12b76a;
+  border-radius: 6px;
+  background: #ecfdf3;
+  color: #344054;
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+.rx-queue-review-note.needs-attention {
+  border-left-color: #f04438;
+  background: #fef3f2;
+}
+.rx-queue-review-note small {
+  display: block;
+  margin-top: 3px;
+  color: #667085;
+}
 .rx-approval-question {
   margin: 10px 0 0;
   color: #475467;
@@ -4012,6 +4031,14 @@ tbody tr:hover {
   background: #ecfdf3;
   font-size: 10px;
   font-weight: 750;
+}
+
+/* Keep ticket confirmations readable inside the dark executive dashboard.
+   The dashboard's generic card-paragraph rule must not turn this text white. */
+.rx-executive-dashboard-v2 .rx-queue-recommendation > p.rx-queue-success {
+  color: #065f46 !important;
+  background: #d1fae5;
+  border: 1px solid #6ee7b7;
 }
 @media (max-width: 1400px) {
   .rx-dashboard-queue-grid {
@@ -4686,6 +4713,143 @@ tbody tr:hover {
 }
 .rx-executive-summary-section .rx-section-heading {
   margin-bottom: 0;
+}
+.rx-baseline-review {
+  display: grid;
+  grid-template-columns: minmax(230px, .7fr) minmax(0, 1.5fr);
+  align-items: center;
+  gap: 10px 18px;
+  padding: 12px 15px;
+  border: 1px solid rgba(56, 217, 150, .45);
+  border-radius: 12px;
+  background: rgba(8, 31, 45, .76);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+.rx-baseline-review.needs-attention {
+  border-color: rgba(251, 113, 133, .62);
+  background: rgba(55, 21, 35, .78);
+}
+.rx-baseline-review.not-required {
+  border-color: rgba(34, 211, 238, .42);
+}
+.rx-baseline-review-heading {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 3px 8px;
+}
+.rx-baseline-review-heading span {
+  color: #93c5fd;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.rx-baseline-review-heading strong {
+  color: #6ee7b7;
+  font-size: 12px;
+  text-transform: capitalize;
+}
+.rx-baseline-review.needs-attention .rx-baseline-review-heading strong {
+  color: #fda4af;
+}
+.rx-baseline-review-heading small {
+  grid-column: 1 / -1;
+  color: #94a3b8;
+  font-size: 10px;
+}
+.rx-baseline-review > p {
+  margin: 0;
+  color: #e2e8f0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.rx-baseline-review-triggers {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rx-baseline-review-triggers b {
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: rgba(59, 130, 246, .15);
+  color: #bfdbfe;
+  font-size: 9.5px;
+  font-weight: 700;
+}
+.rx-baseline-rag-summary {
+  display: grid;
+  justify-items: start;
+  gap: 9px;
+  padding: 12px 15px;
+  border: 1px solid rgba(96, 165, 250, .34);
+  border-radius: 12px;
+  background: rgba(8, 31, 45, .76);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
+  text-align: left;
+}
+.rx-baseline-rag-heading {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+}
+.rx-baseline-rag-heading > span {
+  color: #e2e8f0;
+  font-size: 11px;
+  font-weight: 800;
+}
+.rx-baseline-rag-heading > small {
+  color: #94a3b8;
+  font-size: 9.5px;
+}
+.rx-baseline-rag-row {
+  display: grid;
+  grid-template-columns: 150px auto;
+  align-items: center;
+  justify-content: start;
+  gap: 12px;
+}
+.rx-baseline-rag-row > strong {
+  color: #bfdbfe;
+  font-size: 10px;
+}
+.rx-baseline-rag-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rx-baseline-rag-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 74px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 9.5px;
+  font-weight: 700;
+}
+.rx-baseline-rag-count b {
+  font-size: 13px;
+}
+.rx-baseline-rag-count.green {
+  color: #a7f3d0;
+  border-color: rgba(52, 211, 153, .34);
+  background: rgba(16, 185, 129, .13);
+}
+.rx-baseline-rag-count.amber {
+  color: #fde68a;
+  border-color: rgba(251, 191, 36, .36);
+  background: rgba(245, 158, 11, .13);
+}
+.rx-baseline-rag-count.red {
+  color: #fecdd3;
+  border-color: rgba(251, 113, 133, .38);
+  background: rgba(244, 63, 94, .13);
+}
+@media (max-width: 720px) {
+  .rx-baseline-rag-row { grid-template-columns: 1fr; gap: 5px; }
 }
 .rx-executive-summary-section .rx-executive-decision-grid {
   align-items: stretch;
